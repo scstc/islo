@@ -3,7 +3,8 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 Push-Location $projectRoot
 try {
-    $version = [regex]::Match((Get-Content Cargo.toml -Raw), '(?m)^version = "([^"]+)"').Groups[1].Value
+    $version = (Get-Content -LiteralPath VERSION -Raw).Trim()
+    if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw 'VERSION must contain four numeric components' }
     if (-not $SkipBuild) {
         $env:CARGO_BUILD_JOBS = '1'
         cargo "+$Toolchain" build --locked --release --bin islo --target x86_64-pc-windows-msvc
@@ -35,7 +36,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $projectRoot $_) -Destination $stagingDirectory -Recurse
     }
     $setup = Join-Path $outputDirectory "islo-Setup-v$version-x64.exe"
-    & $NsisCompiler /V2 /WX "/DAPP_VERSION=$version" "/DPROJECT_DIR=$projectRoot" "/DSOURCE_EXE=$($binary.FullName)" "/DOUTPUT_FILE=$setup" (Join-Path $projectRoot 'installer\setup.nsi')
+    & $NsisCompiler /V2 /WX "/DAPP_VERSION=$version" "/DAPP_FILE_VERSION=$version" "/DPROJECT_DIR=$projectRoot" "/DSOURCE_EXE=$($binary.FullName)" "/DOUTPUT_FILE=$setup" (Join-Path $projectRoot 'installer\setup.nsi')
     if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
     $archive = Join-Path $outputDirectory "$packageName.zip"
     Compress-Archive -LiteralPath $stagingDirectory -DestinationPath $archive

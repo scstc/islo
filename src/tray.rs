@@ -223,7 +223,7 @@ fn menu_items(menu: HMENU) -> Vec<(String, bool, bool)> {
 fn about() {
     let text = wide(&format!(
         "islo {}\n\nWindows 桌面灵动岛小助手\n退出请右键托盘图标，选择「退出」。",
-        env!("CARGO_PKG_VERSION")
+        env!("ISLO_APP_VERSION")
     ));
     let title = wide("关于islo");
     unsafe {

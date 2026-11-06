@@ -43,5 +43,7 @@ jobs:
         run: |
           $compiler = ./scripts/get-nsis.ps1 -Directory $env:RUNNER_TEMP
           ./tests/native_installer.ps1 -NsisCompiler $compiler
+          ./tests/native_installer.ps1 -NsisCompiler $compiler -FixtureVersion 9.8.7.1
           ./tests/update_installer.ps1
+          ./tests/update_installer.ps1 -FixtureVersion 9.8.7.1
           exit 0

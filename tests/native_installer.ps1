@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$NsisCompiler)
+param([Parameter(Mandatory=$true)][string]$NsisCompiler, [string]$FixtureVersion = '9.8.7')
 $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot -Parent
 $id = 'isloSetupTest' + [Guid]::NewGuid().ToString('N')
@@ -15,7 +15,8 @@ $fixture = Join-Path $root 'fixture.exe'
 & (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe') /nologo /target:winexe "/out:$fixture" $source
 if ($LASTEXITCODE -ne 0) { throw '测试程序编译失败' }
 $setup = Join-Path $root 'islo-TestInstaller.exe'
-& $NsisCompiler /V2 /WX "/DAPP_ID=$id" "/DAPP_NAME=$name" /DAPP_VERSION=9.8.7 "/DPROJECT_DIR=$project" "/DSOURCE_EXE=$fixture" "/DOUTPUT_FILE=$setup" (Join-Path $project 'installer\setup.nsi')
+$fileVersion = if ($FixtureVersion.Split('.').Count -eq 3) { "$FixtureVersion.0" } else { $FixtureVersion }
+& $NsisCompiler /V2 /WX "/DAPP_ID=$id" "/DAPP_NAME=$name" "/DAPP_VERSION=$FixtureVersion" "/DAPP_FILE_VERSION=$fileVersion" "/DPROJECT_DIR=$project" "/DSOURCE_EXE=$fixture" "/DOUTPUT_FILE=$setup" (Join-Path $project 'installer\setup.nsi')
 if ($LASTEXITCODE -ne 0) { throw '测试安装器编译失败' }
 New-Item -ItemType Directory -Path $data -Force | Out-Null
 Set-Content -LiteralPath $sentinel -Value 'keep-user-data'
@@ -29,7 +30,7 @@ function Run-Setup {
 function Assert-Installed {
     param([bool]$Desktop = $true, [bool]$AutoStart = $false)
     $entry = Get-ItemProperty -LiteralPath $key
-    if ($entry.InstallLocation -ne $installed -or $entry.DisplayVersion -ne '9.8.7') { throw '安装注册信息不正确' }
+    if ($entry.InstallLocation -ne $installed -or $entry.DisplayVersion -ne $FixtureVersion) { throw '安装注册信息不正确' }
     if ($entry.UninstallString -ne ('"' + (Join-Path $installed 'Uninstall.exe') + '"')) { throw '卸载命令不正确' }
     if ((Get-FileHash (Join-Path $installed 'islo.exe')).Hash -ne (Get-FileHash $fixture).Hash) { throw '程序复制不正确' }
     $shell = New-Object -ComObject WScript.Shell

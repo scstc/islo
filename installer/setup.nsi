@@ -20,7 +20,10 @@ InstallDirRegKey HKCU "${UNINSTALL_KEY}" "InstallLocation"
 RequestExecutionLevel user
 ManifestDPIAware true
 SetCompressor /SOLID lzma
-VIProductVersion "${APP_VERSION}.0"
+!ifndef APP_FILE_VERSION
+  !define APP_FILE_VERSION "${APP_VERSION}.0"
+!endif
+VIProductVersion "${APP_FILE_VERSION}"
 VIAddVersionKey /LANG=2052 "ProductName" "${APP_NAME}"
 VIAddVersionKey /LANG=2052 "FileDescription" "${APP_NAME}安装程序"
 VIAddVersionKey /LANG=2052 "FileVersion" "${APP_VERSION}"

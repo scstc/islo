@@ -6,6 +6,11 @@ use crate::paint::{Card, H};
 use crate::theme::{self, W};
 use eframe::egui::Color32;
 
+/// Soft saturation keeps motion noticeable nearby and responsive across the screen.
+pub(crate) fn pointer_gaze(offset:[f32;2])->[f32;2] {
+    [offset[0]/(offset[0].abs()+80.0),offset[1]/(offset[1].abs()+75.0)]
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PetState {
     Awake,
@@ -77,6 +82,72 @@ impl Mouth {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pointer_tracking_is_continuous_at_a_distance_and_keeps_fixed_expressions() {
+        assert_eq!(pointer_gaze([0.0;2]),[0.0;2]);
+        assert!(pointer_gaze([500.0,500.0])[0]>pointer_gaze([100.0,100.0])[0],"远离小岛后仍应响应鼠标，而不是过早卡在边界");
+        for state in [PetState::Awake,PetState::Laughing,PetState::Happy,PetState::Thinking,PetState::Music,PetState::Focused] {
+            let mut pet=Pet::default();
+            for _ in 0..120 {pet.step(state,0.0,1.0/60.0,pointer_gaze([1000.0,1000.0]),true);}
+            assert_eq!(pet.state,state,"跟随鼠标不能改变固定选择的表情");
+            assert!(pet.gaze[0]>2.5 && pet.gaze[1]>1.3,"{state:?} 应有明显的水平和垂直注视：{:?}",pet.gaze);
+            let right=pet.gaze;
+            pet.step(state,0.0,1.0/60.0,pointer_gaze([-1000.0,-1000.0]),true);
+            assert!(pet.gaze[0]<right[0] && pet.gaze[0]>-2.5,"转向应平滑过渡，不能瞬间跳到另一侧");
+            for _ in 0..120 {pet.step(state,0.0,1.0/60.0,pointer_gaze([-1000.0,-1000.0]),true);}
+            assert!(pet.gaze[0]< -2.5 && pet.gaze[1]< -1.3);
+        }
+        let mut pet=Pet::default();
+        for _ in 0..120 {pet.step(PetState::Sleeping,0.0,1.0/60.0,pointer_gaze([1000.0,1000.0]),true);}
+        assert_eq!(pet.gaze,[0.0;2],"睡眠仍应保持闭眼姿态");
+    }
+
+    #[test]
+    fn mouse_direction_changes_eye_shape_without_opening_closed_smile_eyes() {
+        let mut pet=Pet::default();
+        for _ in 0..120 {pet.step(PetState::Awake,0.0,1.0/60.0,pointer_gaze([1000.0,0.0]),true);}
+        assert!(pet.eyes[1].height-pet.eyes[0].height>0.8,"向右看时两只眼睛应产生可见的形态差异");
+        for _ in 0..120 {pet.step(PetState::Laughing,0.0,1.0/60.0,pointer_gaze([1000.0,0.0]),true);}
+        assert!(pet.eyes.iter().all(|eye|eye.height<0.01 && eye.curve< -1.0),"大笑的弧形眼睛应保留");
+        assert!(pet.eyes[0].tilt>0.35,"闭眼笑仍应随鼠标方向转动");
+    }
+
+    #[test]
+    #[ignore="按需导出鼠标注视方向预览"]
+    fn pointer_gaze_preview_gallery() {
+        use eframe::egui::{self,Pos2,Rect,Vec2};
+        let dest=std::path::PathBuf::from(std::env::var_os("ISLO_GAZE_PREVIEW_DIR").expect("需指定预览目录"));
+        std::fs::create_dir_all(&dest).unwrap();
+        let ctx=egui::Context::default();crate::theme::load_fonts(&ctx);
+        let states=[PetState::Awake,PetState::Laughing,PetState::Music,PetState::Focused];
+        let directions=[("Left",[-1200.0,0.0]),("Up",[0.0,-1200.0]),("Center",[0.0;2]),("Down",[0.0,1200.0]),("Right",[1200.0,0.0])];
+        let mut raster=crate::preview_raster::Raster::new(800,560);
+        for frame in 0..4 {
+            let output=ctx.run(egui::RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,Vec2::new(800.0,560.0))),..Default::default()},|ctx|{
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx,|ui|{
+                    ui.painter().rect_filled(ui.max_rect(),0.0,Color32::from_rgb(12,14,18));
+                    ui.painter().text(Pos2::new(18.0,18.0),egui::Align2::LEFT_CENTER,"islo · mouse gaze",egui::FontId::proportional(18.0),theme::WHITE);
+                    for (row,state) in states.into_iter().enumerate() {for (col,(label,offset)) in directions.into_iter().enumerate() {
+                        let origin=Pos2::new(col as f32*160.0,row as f32*130.0+36.0);
+                        let rect=Rect::from_min_size(origin,Vec2::new(160.0,130.0));
+                        ui.painter().rect_filled(rect.shrink(4.0),10.0,Color32::from_rgb(23,26,32));
+                        let mut pet=Pet::default();
+                        for _ in 0..120 {pet.step(state,0.0,1.0/60.0,pointer_gaze(offset),true);}
+                        let mut card=Card::new(ui,origin+Vec2::new(0.0,8.0),rect);card.s=3.0;pet.draw(&card,80.0/3.0,0.0);
+                        ui.painter().text(origin+Vec2::new(80.0,113.0),egui::Align2::CENTER_CENTER,format!("{} · {label}",state.label(crate::i18n::Locale::En)),egui::FontId::proportional(11.0),theme::GRAY);
+                    }}
+                });
+            });
+            raster.update_textures(&output.textures_delta);
+            if frame==3 {
+                raster.buf.fill([0.0;4]);raster.draw(&ctx.tessellate(output.shapes,output.pixels_per_point),output.pixels_per_point);
+                let mut rgba=Vec::new();raster.to_rgba8(&mut rgba);
+                image::save_buffer(dest.join("mouse-gaze.png"),&rgba,800,560,image::ColorType::Rgba8).unwrap();
+            }
+            raster.free_textures(&output.textures_delta);
+        }
+    }
+
     #[test]
     #[ignore="按需导出 islo 全部表情的连续帧"]
     fn expression_preview_gallery() {
@@ -271,7 +342,7 @@ impl Pet {
         let age = self.age;
         let mut eyes = [Eye::open(4.4); 2];
         let mut y = (t as f32 * 1.7).sin() * 0.35;
-        let mut look = gaze;
+        let mut look = [0.0;2];
         match state {
             PetState::Awake => {},
             PetState::Curious => {
@@ -307,10 +378,10 @@ impl Pet {
                 eyes[0] = Eye { spread: -0.6, tilt: -0.7, y: 0.4, ..Eye::open(2.8) };
                 eyes[1] = Eye { spread: 0.6, tilt: 0.7, y: 1.0, ..Eye::open(1.8) };
             },
-            PetState::Focused => { eyes = [Eye::open(1.8); 2]; look = [gaze[0] * 0.2, 0.0]; y = 0.0; },
+            PetState::Focused => { eyes = [Eye::open(1.8); 2]; y = 0.0; },
             PetState::Dozing => { eyes = [Eye::open(0.6); 2]; y = 1.0; look = [0.0; 2]; },
             PetState::Sleeping => { eyes = [Eye::arc(2.4, 1.0); 2]; y = 0.8 + (t as f32 * 1.2).sin() * 0.4; look = [0.0; 2]; },
-            PetState::Listening=>{eyes=[Eye::open(5.0);2];eyes[1].y=-0.4;look=[gaze[0]*0.4,0.0];},
+            PetState::Listening=>{eyes=[Eye::open(5.0);2];eyes[1].y=-0.4;},
             PetState::Thinking=>{eyes[0]=Eye::open(1.8);eyes[1]=Eye::open(4.6);look=[1.0,-0.7];y=0.0;},
             PetState::Loading=>{eyes=[Eye::open(3.8);2];look=[(age*1.2).sin()*0.7,0.0];y=0.0;},
             PetState::Excited=>{eyes=[Eye::open(6.2);2];y=-(age*5.0).sin().abs()*1.2;look=[0.0;2];},
@@ -320,6 +391,16 @@ impl Pet {
             PetState::Angry=>{eyes=[Eye::open(2.8);2];eyes[0].tilt=-0.7;eyes[1].tilt=0.7;y=-0.3;look=[0.0;2];},
             PetState::Surprised=>{eyes=[Eye::open(6.8);2];look=[0.0;2];y=-0.4;},
             PetState::Confused=>{eyes[0]=Eye::open(5.8);eyes[1]=Eye::open(2.6);eyes[1].y=0.5;look=[-0.5,0.0];},
+        }
+        let tracking=match state {PetState::Sleeping|PetState::Dozing=>0.0,PetState::Waking=>smoothstep(0.4,1.2,age),PetState::Focused=>0.55,PetState::Music=>0.7,_=>1.0};
+        let horizontal=gaze[0].clamp(-1.0,1.0)*tracking;
+        let vertical=gaze[1].clamp(-1.0,1.0)*tracking;
+        look[0]=(look[0]+horizontal*5.6).clamp(-6.0,6.0);
+        look[1]=(look[1]+vertical*2.8).clamp(-3.2,3.2);
+        for (index,eye) in eyes.iter_mut().enumerate() {
+            let side=if index==0{-1.0}else{1.0};
+            eye.height*=1.0+side*horizontal*0.14-vertical*0.1;
+            eye.tilt+=horizontal*0.45;
         }
         if matches!(state, PetState::Awake | PetState::Curious | PetState::Focused | PetState::Worried) {
             let start = 2.0 + crate::anim::hash01((t / 5.6).floor() as u64) * 2.7;
@@ -349,7 +430,7 @@ impl Pet {
             // 圆端点保持胶囊眼睛的轮廓。
             for p in [points[0], points[12]] { c.circle(p.0, p.1, stroke/2.0, theme::WHITE); }
         }
-        if self.state!=PetState::Music {self.mouth.draw(c,cx+self.gaze[0]*0.5,22.0+self.y+self.gaze[1]*0.5);}
+        if self.state!=PetState::Music {self.mouth.draw(c,cx+self.gaze[0]*0.5,22.0+self.y+self.gaze[1]*0.75);}
         if self.blush>0.01 {for x in [cx-10.5,cx+10.5]{c.fill(x-1.6,18.6+self.y,3.2,1.4,0.7,theme::RED_TOP.gamma_multiply(self.blush*0.6));}}
         match self.state {
             PetState::Dozing | PetState::Sleeping => {

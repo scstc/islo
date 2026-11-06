@@ -4,6 +4,8 @@
 
 ## 本地开发
 
+发布版本以根目录 `VERSION` 为准：例如 `26.4.3` 分支依次发布 `26.4.3.1`、`26.4.3.2`，切换到 `26.4.4` 后从 `26.4.4.1` 开始。Cargo 的三段版本保留分支前缀，应用显示及安装包使用四段完整版本。具体约定见 [AGENTS.md](AGENTS.md)。
+
 安装 Rust stable、Visual Studio C++ 构建工具和 Windows SDK，克隆仓库后运行：
 
 ```powershell

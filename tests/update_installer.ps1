@@ -1,5 +1,5 @@
 # 使用独立目录和最小测试程序验证更新，不启动或替换日常使用的islo。
-param([switch]$EncryptedCache)
+param([switch]$EncryptedCache, [string]$FixtureVersion = '9.8.7')
 $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot -Parent
 $testRoot = Join-Path $project ('target\update-test-' + [Guid]::NewGuid().ToString('N'))
@@ -11,7 +11,7 @@ try {
     if ($EncryptedCache -and -not ((Get-Item -LiteralPath $env:LOCALAPPDATA).Attributes -band [IO.FileAttributes]::Encrypted)) { throw '测试缓存目录必须启用 EFS 加密' }
     $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
     $source = Join-Path $testRoot 'fixture.cs'
-    '[assembly:System.Reflection.AssemblyFileVersion("9.8.7")] class Fixture { static void Main() { System.IO.File.WriteAllText(System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,"started.txt"),"ok"); } }' | Set-Content -LiteralPath $source
+    '[assembly:System.Reflection.AssemblyFileVersion("FIXTURE_VERSION")] class Fixture { static void Main() { System.IO.File.WriteAllText(System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,"started.txt"),"ok"); } }'.Replace('FIXTURE_VERSION',$FixtureVersion) | Set-Content -LiteralPath $source
     $fixture = Join-Path $testRoot 'fixture.exe'
     & $compiler /nologo /target:winexe "/out:$fixture" $source
     if ($LASTEXITCODE -ne 0) { throw '测试程序编译失败' }
@@ -31,7 +31,9 @@ try {
         New-Item -ItemType Directory -Path $work -Force | Out-Null
         $archive = Join-Path $work 'update.zip'
         $zip = [IO.Compression.ZipFile]::Open($archive, [IO.Compression.ZipArchiveMode]::Create)
-        $version = if ($case -eq 'wrong-version') {'9.8.8'} else {'9.8.7'}
+        $versionParts = $FixtureVersion.Split('.')
+        $versionParts[-1] = ([int]$versionParts[-1] + 1).ToString()
+        $version = if ($case -eq 'wrong-version') {$versionParts -join '.'} else {$FixtureVersion}
         $entry = if ($case -eq 'traversal') {'../islo.exe'} else {"islo-v$version-windows-x64/islo.exe"}
         [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $fixture, $entry) | Out-Null
         $zip.Dispose()

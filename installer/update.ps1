@@ -23,7 +23,7 @@ try {
     Assert-PlainPath $target
     if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { throw '找不到当前程序。' }
     $version = (Get-Content -LiteralPath (Join-Path $workRoot 'version.txt') -Raw).Trim()
-    if ($version -notmatch '^\d+\.\d+\.\d+$') { throw '更新版本号无效。' }
+    if ($version -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') { throw '更新版本号无效。' }
     $archive = Join-Path $workRoot 'update.zip'
     $expectedHash = (Get-Content -LiteralPath (Join-Path $workRoot 'hash.txt') -Raw).Trim()
     if ($expectedHash -notmatch '^[a-fA-F0-9]{64}$' -or (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expectedHash) { throw '更新包校验失败。' }

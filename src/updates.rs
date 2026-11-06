@@ -152,7 +152,7 @@ impl State {
                             ui.vertical(|ui| {
                                 ui.label(egui::RichText::new("islo有新版本了").font(theme::font(21.0,W::Semibold)));
                                 ui.horizontal(|ui| {
-                                    ui.label(egui::RichText::new(option_env!("ISLO_BUILD_LABEL").unwrap_or(env!("CARGO_PKG_VERSION"))).color(theme::DIM));
+                                    ui.label(egui::RichText::new(option_env!("ISLO_BUILD_LABEL").unwrap_or(env!("ISLO_APP_VERSION"))).color(theme::DIM));
                                     ui.label(egui::RichText::new("→").color(theme::DIM));
                                     egui::Frame::new().fill(theme::alpha_blue(0.12)).corner_radius(6.0)
                                         .inner_margin(egui::Margin::symmetric(8,3)).show(ui, |ui| {
@@ -272,7 +272,7 @@ fn http_agent() -> Result<ureq::Agent, String> {
 
 fn check() -> Result<Option<Release>, String> {
     let response = http_agent()?
-        .get(API).set("User-Agent", concat!("islo/", env!("CARGO_PKG_VERSION")))
+        .get(API).set("User-Agent", concat!("islo/", env!("ISLO_APP_VERSION")))
         .set("Accept", "application/vnd.github+json").call().map_err(|error| match error {
             ureq::Error::Status(403 | 429, _) => "检查过于频繁，请稍后重试".to_owned(),
             ureq::Error::Status(404, _) => "暂未找到正式版本，请查看发布页".to_owned(),
@@ -280,7 +280,7 @@ fn check() -> Result<Option<Release>, String> {
         })?;
     let value: serde_json::Value = serde_json::from_reader(response.into_reader())
         .map_err(|_| "更新信息格式异常，请稍后重试".to_owned())?;
-    release_info(&value, env!("CARGO_PKG_VERSION"))
+    release_info(&value, env!("ISLO_APP_VERSION"))
 }
 
 fn release_info(value: &serde_json::Value, current: &str) -> Result<Option<Release>, String> {
@@ -360,15 +360,15 @@ fn launch_installer(work: &std::path::Path) -> Result<(), String> {
 #[cfg(not(windows))]
 fn launch_installer(_: &std::path::Path) -> Result<(), String> { Err("仅支持 Windows 应用内更新".into()) }
 
-fn version(value: &str) -> Option<[u64; 3]> {
-    let mut parts = value.strip_prefix('v').unwrap_or(value).split('.');
-    let mut numbers = [0; 3];
-    for number in &mut numbers {
-        let part = parts.next()?;
-        if part.is_empty() || !part.bytes().all(|c| c.is_ascii_digit()) { return None; }
-        *number = part.parse().ok()?;
+fn version(value: &str) -> Option<[u64; 4]> {
+    let mut numbers = [0; 4];
+    let mut count = 0;
+    for (index, part) in value.strip_prefix('v').unwrap_or(value).split('.').enumerate() {
+        if index >= 4 || part.is_empty() || !part.bytes().all(|c| c.is_ascii_digit()) { return None; }
+        numbers[index] = part.parse().ok()?;
+        count += 1;
     }
-    parts.next().is_none().then_some(numbers)
+    (3..=4).contains(&count).then_some(numbers)
 }
 
 fn parse_release(value: &serde_json::Value, current: &str) -> Result<Option<String>, String> {
@@ -448,7 +448,7 @@ mod tests {
     }
     #[test]
     fn rejects_invalid_and_unpublished_releases() {
-        for tag in ["", "latest", "v1.0", "v1.0.0.1", "v1.0.0-beta", "v+1.0.0"] {
+        for tag in ["", "latest", "v1.0", "v1.0.0.1.1", "v1.0.0.", "v1.0..1", "v1.0.0-beta", "v+1.0.0"] {
             assert!(parse_release(&release(tag), "0.6.39").is_err());
         }
         for field in ["draft", "prerelease"] {
@@ -456,6 +456,17 @@ mod tests {
             assert!(parse_release(&value, "0.6.39").is_err());
         }
         assert!(parse_release(&serde_json::json!({}), "0.6.39").is_err());
+    }
+    #[test]
+    fn four_part_versions_increment_within_a_branch_and_reset_on_the_next_branch() {
+        for (current, next) in [("26.4.2","v26.4.3.1"),("26.4.3.1","v26.4.3.2"),("26.4.3.2","v26.4.3.10"),("26.4.3.99","v26.4.4.1")] {
+            assert_eq!(parse_release(&release(next),current),Ok(Some(next.into())));
+            assert_eq!(parse_release(&release(current),next),Ok(None));
+        }
+        assert_eq!(parse_release(&release("v26.4.3.0"),"26.4.3"),Ok(None));
+        let mut value=release("v26.4.3.1");
+        value["assets"]=serde_json::json!([{"name":"islo-v26.4.3.1-windows-x64.zip","browser_download_url":"https://github.com/scstc/islo/releases/download/v26.4.3.1/islo-v26.4.3.1-windows-x64.zip","size":123,"digest":format!("sha256:{}","a".repeat(64))}]);
+        assert!(release_info(&value,"26.4.2").unwrap().unwrap().package.is_some());
     }
     #[test]
     fn only_matching_verified_windows_package_can_install() {

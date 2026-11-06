@@ -1678,7 +1678,7 @@ impl App {
                         settings_label(ui,"islo");
                         settings_card(ui,|ui|{
                             ui.horizontal(|ui|{
-                                ui.label(egui::RichText::new(format!("版本 {}",env!("CARGO_PKG_VERSION"))).size(13.0));
+                                ui.label(egui::RichText::new(format!("版本 {}",env!("ISLO_APP_VERSION"))).size(13.0));
                                 ui.add_space(8.0);
                                 ui.vertical(|ui|self.updates.ui(ui));
                             });
@@ -1691,7 +1691,7 @@ impl App {
                         });
                         ui.horizontal_wrapped(|ui|{
                             ui.label("基于开源项目岛仔（Daozai）开发。");
-                            ui.hyperlink_to("islo 源码","https://github.com/scstc/islo/tree/26.4.1");
+                            ui.hyperlink_to("islo 源码",format!("https://github.com/scstc/islo/tree/{}",env!("CARGO_PKG_VERSION")));
                             ui.hyperlink_to("原项目","https://github.com/Renly1994/xiaotang-daozai");
                             ui.hyperlink_to("表情适配：Aora Bot","https://github.com/sam70361/aora-bot");
                         });

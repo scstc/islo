@@ -9,7 +9,7 @@ fn write_report(directory: &Path, title: &str, details: &str) -> std::io::Result
         .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
     std::fs::write(&path, format!(
         "islo {}\n系统：{} / {}\n时间（Unix 秒）：{timestamp}\n{title}\n{details}\n",
-        env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH,
+        env!("ISLO_APP_VERSION"), std::env::consts::OS, std::env::consts::ARCH,
     ))?;
     Ok(path)
 }
@@ -39,7 +39,7 @@ pub fn startup(stage:&str) {
     let directory=islo::model::config_dir().join("diagnostics");
     if std::fs::create_dir_all(&directory).is_ok() {
         let _=std::fs::write(directory.join("last-startup.log"),format!(
-            "islo {}\n进程：{}\n启动阶段：{stage}\n",env!("CARGO_PKG_VERSION"),std::process::id()));
+            "islo {}\n进程：{}\n启动阶段：{stage}\n",env!("ISLO_APP_VERSION"),std::process::id()));
     }
 }
 
@@ -81,7 +81,7 @@ mod tests {
         let path = directory.join("last-error.log");
         assert!(text.contains(&path.display().to_string()));
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains(env!("CARGO_PKG_VERSION")));
+        assert!(content.contains(env!("ISLO_APP_VERSION")));
         assert!(content.contains("OpenGL 初始化失败"));
         // 重复失败只保留最后一份，避免常驻程序无限累积日志。
         write_report(&directory, "第二次失败", "新的错误").unwrap();

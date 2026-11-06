@@ -30,22 +30,35 @@ fn find_rc() -> Option<PathBuf> {
 }
 
 fn main() {
+    println!("cargo:rerun-if-changed=VERSION");
+    let version = fs::read_to_string("VERSION").expect("VERSION must exist");
+    let version = version.trim();
+    let parts: Vec<_> = version.split('.').collect();
+    assert!(parts.len() == 4 && parts.iter().all(|part| !part.is_empty() && part.bytes().all(|c| c.is_ascii_digit()) && part.parse::<u16>().is_ok()), "VERSION must contain four numeric Windows version components");
+    assert_eq!(parts[..3].join("."), env::var("CARGO_PKG_VERSION").unwrap(), "Cargo version must match the release branch prefix");
+    println!("cargo:rustc-env=ISLO_APP_VERSION={version}");
     println!("cargo:rerun-if-changed=app.rc");
     println!("cargo:rerun-if-changed=assets/islo.ico");
     println!("cargo:rerun-if-changed=build.rs");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
-    let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join("islo.res");
+    let directory = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let out = directory.join("islo.res");
     let Some(rc) = find_rc() else {
         println!("cargo:warning=rc.exe 未找到，跳过图标资源");
         return;
     };
+    let source = directory.join("islo.rc");
+    let template = fs::read_to_string("app.rc").expect("app.rc must exist");
+    fs::write(&source, format!("#define ISLO_FILE_VERSION {}\n#define ISLO_DISPLAY_VERSION \"{version}\"\n{template}", parts.join(","))).expect("write versioned resource");
     let status = Command::new(&rc)
         .arg("/nologo")
         .arg("/fo")
         .arg(&out)
-        .arg("app.rc")
+        .arg("/I")
+        .arg(env::var("CARGO_MANIFEST_DIR").unwrap())
+        .arg(&source)
         .status();
     if !status.map(|s| s.success()).unwrap_or(false) {
         println!("cargo:warning=rc.exe 编译 app.rc 失败");

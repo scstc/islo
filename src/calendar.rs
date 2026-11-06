@@ -430,7 +430,7 @@ fn agent() -> ureq::Agent {
         .timeout_write(Duration::from_secs(20))
         .timeout(Duration::from_secs(30))
         .redirects(0)
-        .user_agent(concat!("islo/",env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("islo/",env!("ISLO_APP_VERSION")))
         .build()
 }
 

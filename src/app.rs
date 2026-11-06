@@ -2319,8 +2319,8 @@ impl App {
         let visible = available && self.pet_a > 0.7 && self.progress() < 0.1;
         self.pet.advance(self.dt, visible);
         let state = self.pet_state();
-        let gaze = env.cursor.map(|p| [((p.x-cx)/28.0).clamp(-3.0,3.0), ((p.y-15.0)/40.0).clamp(-1.0,1.5)])
-            .unwrap_or([(self.t as f32 * 0.35).sin()*0.8, 0.0]);
+        let gaze = env.cursor.map(|p| crate::pet::pointer_gaze([p.x-cx,p.y-15.0]))
+            .unwrap_or([(self.t as f32 * 0.35).sin()*0.13, 0.0]);
         self.pet.step(state, self.t, self.dt, gaze, visible);
     }
 
