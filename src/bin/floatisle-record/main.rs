@@ -1,15 +1,15 @@
 //! 演示录制器：不开窗口，脚本驱动鼠标/键盘/拖放，egui 输出用软件光栅化，
 //! 逐帧把 RGBA 写到 stdout（或直接拉起 ffmpeg）。
 //!
-//! 用法：`cargo run --release --features record --bin daozai-record -- out.mp4`
+//! 用法：`cargo run --release --features record --bin floatisle-record -- out.mp4`
 //! 需要 PATH 里有 ffmpeg。画面里的歌曲、文件、待办都是演示用的假数据。
 
 mod raster;
 
 use eframe::egui::{self, Color32, Event, Pos2, Rect, Shape, Stroke, Vec2};
-use daozai::app::{App, Cmd, Env, FrameOut, Options, WIN_H, WIN_W};
-use daozai::lyrics;
-use daozai::smtc::{NowPlaying, Transport};
+use floatisle::app::{App, Cmd, Env, FrameOut, Options, WIN_H, WIN_W};
+use floatisle::lyrics;
+use floatisle::smtc::{NowPlaying, Transport};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -22,7 +22,7 @@ const WX: f32 = (CW - WIN_W) / 2.0; // 窗口在画布中的位置
 
 /// 面板坐标（相对展开面板左上角）→ 画布坐标
 fn p(x: f32, y: f32) -> Pos2 {
-    Pos2::new(CW / 2.0 - daozai::app::PW / 2.0 + x, y)
+    Pos2::new(CW / 2.0 - floatisle::app::PW / 2.0 + x, y)
 }
 
 #[derive(Clone)]
@@ -81,7 +81,7 @@ fn ease(x: f64) -> f64 {
 }
 
 fn setup_data() -> (PathBuf, PathBuf) {
-    let root = std::env::temp_dir().join(format!("daozai-demo-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("floatisle-demo-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let data = root.join("data");
     let files = root.join("files");
@@ -110,7 +110,7 @@ fn setup_data() -> (PathBuf, PathBuf) {
     hours[13] = 200;
     let hs: Vec<String> = hours.iter().map(|h| h.to_string()).collect();
     std::fs::write(data.join("water-extra.txt"), format!("drunk=750\nrefills=0\nremind=1\nhours={}\n", hs.join(","))).unwrap();
-    std::env::set_var("DAOZAI_DATA_DIR", &data);
+    std::env::set_var("FLOATISLE_DATA_DIR", &data);
     (root, drag)
 }
 
@@ -237,7 +237,7 @@ fn wallpaper(w: usize, h: usize) -> Vec<[f32; 4]> {
                 c[i] = (c[i] + glow).min(1.0);
             }
             // 轻微颗粒，避免色带
-            let n = (daozai::anim::hash01((x * 7919 + y * 104729) as u64) - 0.5) * 0.008;
+            let n = (floatisle::anim::hash01((x * 7919 + y * 104729) as u64) - 0.5) * 0.008;
             v[y * w + x] = [c[0] + n, c[1] + n, c[2] + n, 1.0];
         }
     }
@@ -284,11 +284,11 @@ fn cursor_shapes(at: Pos2, press: f32, dragging: Option<f32>) -> Vec<Shape> {
 
 fn main() {
     if std::env::args().any(|a|a=="--gallery"){gallery();return;}
-    let out_path = std::env::args().nth(1).unwrap_or_else(|| "daozai-demo.mp4".into());
+    let out_path = std::env::args().nth(1).unwrap_or_else(|| "floatisle-demo.mp4".into());
     let (root, drag_file) = setup_data();
 
-    // DAOZAI_FAST=1：只跑脚本不出画面，调试点击位置用
-    let fast = std::env::var("DAOZAI_FAST").is_ok();
+    // FLOATISLE_FAST=1：只跑脚本不出画面，调试点击位置用
+    let fast = std::env::var("FLOATISLE_FAST").is_ok();
     let ctx = egui::Context::default();
     let mut app = App::new(&ctx, Options { fetch_lyrics: false, pet_idle: 4.0 });
 
@@ -409,7 +409,7 @@ fn main() {
             events.push(Event::PointerButton { pos: cursor, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() });
             pending_release = false;
         }
-        drag_a = daozai::anim::approach(drag_a, if dragging.is_some() { 1.0 } else { 0.0 }, 14.0, 1.0 / 60.0);
+        drag_a = floatisle::anim::approach(drag_a, if dragging.is_some() { 1.0 } else { 0.0 }, 14.0, 1.0 / 60.0);
 
         // 鼠标只有在窗口的可交互区域里才会被应用“看见”（与真窗口的区域裁剪一致）
         let inside = region.contains(cursor) && !first;
@@ -478,17 +478,17 @@ fn main() {
             ripples.retain(|(_, t0)| t - t0 < 0.45);
             for (at, t0) in &ripples {
                 let k = ((t - t0) / 0.45) as f32;
-                let r = 5.0 + 13.0 * daozai::anim::ease_out_cubic(k);
+                let r = 5.0 + 13.0 * floatisle::anim::ease_out_cubic(k);
                 painter.circle_stroke(*at, r, Stroke::new(1.6_f32, Color32::from_white_alpha((150.0 * (1.0 - k)) as u8)));
             }
             let press = (1.0 - ((t - press_t) / 0.18) as f32).clamp(0.0, 1.0);
             painter.extend(cursor_shapes(cursor, press, if drag_a > 0.01 { Some(drag_a) } else { None }));
         });
         let fo = fo.unwrap();
-        if std::env::var("DAOZAI_DEBUG").is_ok() && frame_no % 60 == 0 {
+        if std::env::var("FLOATISLE_DEBUG").is_ok() && frame_no % 60 == 0 {
             eprintln!("  t={t:.1} idle={:.1} p={:.2} cur={cursor:?}", app.idle_for(), app.progress());
         }
-        if dbg_click && std::env::var("DAOZAI_DEBUG").is_ok() {
+        if dbg_click && std::env::var("FLOATISLE_DEBUG").is_ok() {
             eprintln!("t={t:.2} cur={cursor:?} page={} region={:?} hit={:?}", app.page(), fo.region, fo.hit);
         }
         region = fo.region.translate(Vec2::new(WX, 0.0)); // FrameOut 是窗口局部坐标
@@ -513,8 +513,8 @@ fn main() {
         if pipe.write_all(&rgba).is_err() {
             break;
         }
-        if let Ok(dir) = std::env::var("DAOZAI_DUMP") {
-            if let Ok(every) = std::env::var("DAOZAI_DUMP_EVERY") {
+        if let Ok(dir) = std::env::var("FLOATISLE_DUMP") {
+            if let Ok(every) = std::env::var("FLOATISLE_DUMP_EVERY") {
                 let n: u64 = every.parse().unwrap_or(30);
                 if frame_no % n == 0 {
                     let _ = std::fs::write(format!("{dir}/f_{frame_no:05}.rgba"), &rgba);

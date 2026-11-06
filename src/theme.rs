@@ -2,7 +2,7 @@
 //!
 //! 字体：拉丁/数字用 Segoe UI（Windows 原生 UI 字体，与原版 DirectWrite 渲染同源），
 //! 中文回退到微软雅黑 UI，韩文回退到 Malgun Gothic。三档字重：常规 / 半粗 / 粗。
-//! 非 Windows（开发机、录屏）按 `DAOZAI_FONT_DIR` → 常见系统路径依次查找
+//! 非 Windows（开发机、录屏）按 `FLOATISLE_FONT_DIR` → 常见系统路径依次查找
 //! 度量兼容的 Selawik 与 Noto Sans SC。
 
 use eframe::egui::{self, Color32, FontData, FontDefinitions, FontFamily, FontId};
@@ -85,7 +85,7 @@ fn find(cands: &[(&str, u32)], dirs: &[PathBuf]) -> Option<Face> {
 
 fn font_dirs() -> Vec<PathBuf> {
     let mut v = Vec::new();
-    if let Ok(d) = std::env::var("DAOZAI_FONT_DIR") {
+    if let Ok(d) = std::env::var("FLOATISLE_FONT_DIR") {
         v.push(PathBuf::from(d));
     }
     if let Ok(exe) = std::env::current_exe() {
@@ -198,11 +198,11 @@ fn build_fonts()->FontDefinitions {
     fonts
 }
 
-/// 各个原生窗口统一使用岛仔品牌图标，避免回落到框架默认图标。
+/// 各个原生窗口统一使用FloatIsle品牌图标，避免回落到框架默认图标。
 pub fn app_icon()->std::sync::Arc<eframe::egui::IconData>{
     static ICON:std::sync::OnceLock<std::sync::Arc<eframe::egui::IconData>>=std::sync::OnceLock::new();
     ICON.get_or_init(||{
-        let image=image::load_from_memory(include_bytes!("../assets/daozai-logo.png")).expect("岛仔图标资源应有效").thumbnail(128,128).to_rgba8();
+        let image=image::load_from_memory(include_bytes!("../assets/floatisle-logo.png")).expect("FloatIsle图标资源应有效").thumbnail(128,128).to_rgba8();
         std::sync::Arc::new(eframe::egui::IconData{width:image.width(),height:image.height(),rgba:image.into_raw()})
     }).clone()
 }
@@ -227,7 +227,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn mapped_fonts_prevent_in_place_writes_and_keep_shared_reads(){
-        let path=std::env::temp_dir().join(format!("daozai-font-map-{}-{}.bin",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let path=std::env::temp_dir().join(format!("floatisle-font-map-{}-{}.bin",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         std::fs::write(&path,b"readonly font fixture").unwrap();
         let mapped=super::MappedFont::open(&path).unwrap();
         assert_eq!(&mapped.bytes[..],b"readonly font fixture");

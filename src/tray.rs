@@ -1,7 +1,7 @@
 //! 系统托盘、右键菜单与开机启动。
 //!
 //! 托盘行为：
-//! - `uID=1`，`uFlags=NIF_MESSAGE|NIF_ICON|NIF_TIP`，回调 `WM_APP+9`，提示 `岛仔`；
+//! - `uID=1`，`uFlags=NIF_MESSAGE|NIF_ICON|NIF_TIP`，回调 `WM_APP+9`，提示 `FloatIsle`；
 //! - 图标取 exe 内 `RT_GROUP_ICON #1`，按 `SM_CXSMICON` 走 `LoadImageW`；
 //! - 左键、右键都弹同一个菜单，没有双击分支；
 //! - 菜单固定中文，含设置入口，前三项每次打开现算勾选态；
@@ -48,8 +48,8 @@ const CMD_SETTINGS:u32=6;
 const TIMER_MENU: usize = 12;
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
-const RUN_VALUE: PCWSTR = w!("Daozai");
-const MUTEX_NAME: PCWSTR = w!("Local\\Daozai.SingleInstance");
+const RUN_VALUE: PCWSTR = w!("FloatIsle");
+const MUTEX_NAME: PCWSTR = w!("Local\\FloatIsle.SingleInstance");
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct State {
@@ -60,7 +60,7 @@ pub struct State {
 
 /// 菜单固定中文：启动 / 吉祥物 / 极简 / —— / 设置 / 关于 / 退出。
 fn labels() -> [&'static str; 6] {
-    ["开机启动", "吉祥物", "极简刘海", "关于岛仔", "退出", "设置…"]
+    ["开机启动", "吉祥物", "极简刘海", "关于FloatIsle", "退出", "设置…"]
 }
 
 struct Ctx {
@@ -108,9 +108,9 @@ fn load_resource_icon() -> Option<HICON> {
     }
 }
 
-/// 图标取不到时，直接解析内嵌的岛仔 ICO。
+/// 图标取不到时，直接解析内嵌的FloatIsle ICO。
 fn load_embedded_icon() -> Option<HICON> {
-    let ico: &[u8] = include_bytes!("../assets/daozai.ico");
+    let ico: &[u8] = include_bytes!("../assets/floatisle.ico");
     if ico.len() < 6 {
         return None;
     }
@@ -152,7 +152,7 @@ fn add_icon(hwnd: HWND, hicon: HICON) -> bool {
         hIcon: hicon,
         ..Default::default()
     };
-    fill_tip(&mut nid.szTip, "岛仔");
+    fill_tip(&mut nid.szTip, "FloatIsle");
     unsafe {
         if !Shell_NotifyIconW(NIM_ADD, &nid).as_bool() {
             // explorer 里已有同名残留时，用 MODIFY 顶掉
@@ -222,10 +222,10 @@ fn menu_items(menu: HMENU) -> Vec<(String, bool, bool)> {
 
 fn about() {
     let text = wide(&format!(
-        "岛仔 {}\n\nWindows 桌面灵动岛小助手\n退出请右键托盘图标，选择「退出」。",
+        "FloatIsle {}\n\nWindows 桌面灵动岛小助手\n退出请右键托盘图标，选择「退出」。",
         env!("CARGO_PKG_VERSION")
     ));
-    let title = wide("关于岛仔");
+    let title = wide("关于FloatIsle");
     unsafe {
         MessageBoxW(
             None,
@@ -237,7 +237,7 @@ fn about() {
 }
 
 fn dump_menu(hwnd: HWND, ctx: &Ctx, menu: HMENU) {
-    if let Ok(path) = std::env::var("DAOZAI_TRAY_DUMP") {
+    if let Ok(path) = std::env::var("FLOATISLE_TRAY_DUMP") {
         let state = ctx.state();
         let mut body = String::new();
         body.push_str(&format!("hwnd=0x{:X}\n", hwnd.0 as usize));
@@ -370,14 +370,14 @@ impl Tray {
         let (ready_tx, ready_rx) = channel();
         let thread_state = shared.clone();
         let thread = std::thread::Builder::new()
-            .name("daozai-tray".into())
+            .name("floatisle-tray".into())
             .spawn(move || unsafe {
                 let Ok(module) = GetModuleHandleW(None) else {
                     let _ = ready_tx.send(Err("GetModuleHandleW 失败".to_string()));
                     return;
                 };
                 let hinst = HINSTANCE(module.0);
-                let class = w!("DaozaiTray");
+                let class = w!("FloatIsleTray");
                 let wc = WNDCLASSW {
                     style: WNDCLASS_STYLES(0),
                     lpfnWndProc: Some(wndproc),
@@ -394,7 +394,7 @@ impl Tray {
                 let hwnd = match CreateWindowExW(
                     WS_EX_TOOLWINDOW,
                     class,
-                    w!("岛仔托盘"),
+                    w!("FloatIsle托盘"),
                     WS_POPUP,
                     0,
                     0,
@@ -493,7 +493,7 @@ impl Drop for Tray {
     }
 }
 
-/// 单实例：已有岛仔实例时返回 false。
+/// 单实例：已有FloatIsle实例时返回 false。
 pub fn single_instance() -> bool {
     unsafe {
         match CreateMutexW(None, false, MUTEX_NAME) {
@@ -593,7 +593,7 @@ mod tests {
             assert_eq!(items.len(), 7, "6 项 + 1 分隔线");
             assert!(items[3].2, "第 4 项是分隔线");
             let texts: Vec<_> = items.iter().filter(|i| !i.2).map(|i| i.0.as_str()).collect();
-            assert_eq!(texts, ["开机启动", "吉祥物", "极简刘海", "设置…", "关于岛仔", "退出"]);
+            assert_eq!(texts, ["开机启动", "吉祥物", "极简刘海", "设置…", "关于FloatIsle", "退出"]);
             assert_eq!([items[0].1, items[1].1, items[2].1], want, "勾选态应与状态一致");
             unsafe {
                 let _ = DestroyMenu(menu);
@@ -603,7 +603,7 @@ mod tests {
 
     #[test]
     fn labels_are_fixed_chinese() {
-        assert_eq!(labels(), ["开机启动", "吉祥物", "极简刘海", "关于岛仔", "退出", "设置…"]);
+        assert_eq!(labels(), ["开机启动", "吉祥物", "极简刘海", "关于FloatIsle", "退出", "设置…"]);
     }
 
     #[test]
@@ -614,7 +614,7 @@ mod tests {
 
     #[test]
     fn embedded_icon_still_parsable_as_fallback() {
-        let ico: &[u8] = include_bytes!("../assets/daozai.ico");
+        let ico: &[u8] = include_bytes!("../assets/floatisle.ico");
         assert_eq!(&ico[..4], &[0, 0, 1, 0]);
         assert!(load_embedded_icon().is_some());
     }
@@ -637,8 +637,8 @@ fn request_existing_window(hwnd:HWND,calendar:bool)->bool {unsafe{
 }}
 
 pub fn activate_existing(calendar:bool)->bool {unsafe{
-    let Ok(tray)=FindWindowW(w!("DaozaiTray"),PCWSTR::null()) else{return false;};
-    let Ok(window)=FindWindowW(PCWSTR::null(),w!("岛仔")) else{return false;};
+    let Ok(tray)=FindWindowW(w!("FloatIsleTray"),PCWSTR::null()) else{return false;};
+    let Ok(window)=FindWindowW(PCWSTR::null(),w!("FloatIsle")) else{return false;};
     let(mut tray_pid,mut window_pid)=(0,0);
     GetWindowThreadProcessId(tray,Some(&mut tray_pid));
     GetWindowThreadProcessId(window,Some(&mut window_pid));

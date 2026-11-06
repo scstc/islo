@@ -22,7 +22,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState,VK_LBUTTON,VK
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-const SUBCLASS_ID: usize = 0x4E55_5341; // "DAOZAI"
+const SUBCLASS_ID: usize = 0x4E55_5341; // window subclass identifier
 #[allow(dead_code)]
 const WS_EX_NOREDIRECTIONBITMAP: isize = 0x0020_0000;
 
@@ -78,7 +78,7 @@ impl DragCapture {
 fn watch_drag(hwnd:HWND,ctx:eframe::egui::Context){
     let raw=hwnd.0 as isize;
     let mut was_down=false;
-    let _=std::thread::Builder::new().name("daozai-drag-watch".into()).spawn(move||loop{
+    let _=std::thread::Builder::new().name("floatisle-drag-watch".into()).spawn(move||loop{
         std::thread::sleep(std::time::Duration::from_millis(80));
         unsafe {
             let hwnd=HWND(raw as *mut _);

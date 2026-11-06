@@ -54,7 +54,7 @@ fn redirect_target(current:&str,location:&str)->Option<String>{
 fn request(agent:&ureq::Agent,url:&str,session:&Session)->Result<Snapshot,(String,u64)>{
     let mut current=url.to_owned();
     for _ in 0..3{
-    let response=agent.get(&current).set("Cookie",&session.cookie).set("Accept","application/json").set("Referer","https://gemini.google.com/usage").set("User-Agent","Mozilla/5.0 Daozai").call().map_err(|e|match e{
+    let response=agent.get(&current).set("Cookie",&session.cookie).set("Accept","application/json").set("Referer","https://gemini.google.com/usage").set("User-Agent","Mozilla/5.0 FloatIsle").call().map_err(|e|match e{
         ureq::Error::Status(401|403,_)=>(LOGIN_ERROR.into(),0),
         ureq::Error::Status(429,r)=>("Gemini 请求过于频繁，稍后自动重试".into(),r.header("Retry-After").and_then(|s|s.parse().ok()).unwrap_or(180).clamp(30,3600)),
         ureq::Error::Status(n,_)=>(format!("Gemini 额度服务暂不可用（{n}）"),60),
@@ -116,7 +116,7 @@ impl Connect {
     pub fn poll(&self)->Option<Result<Connected,String>>{self.rx.try_recv().ok()}
 }
 fn bridge(agent:&ureq::Agent,action:&str,args:Value)->Result<Value,String>{
-    let body=json!({"action":action,"args":args,"session":"daozai-gemini"});
+    let body=json!({"action":action,"args":args,"session":"floatisle-gemini"});
     let response=agent.post("http://127.0.0.1:10086/command").set("Content-Type","application/json").send_string(&body.to_string()).map_err(|_|"未连接 Kimi 浏览器扩展；可先连接扩展，或使用下方 Cookie 连接")?;
     let mut raw=String::new();response.into_reader().take(2*1024*1024).read_to_string(&mut raw).map_err(|_|"无法读取浏览器会话")?;
     let value:Value=serde_json::from_str(&raw).map_err(|_|"浏览器扩展返回无效数据")?;

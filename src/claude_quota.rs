@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn desktop_file_discovery_is_read_only_and_binds_the_selected_account(){
         use windows::Win32::{Foundation::{HLOCAL,LocalFree},Security::Cryptography::{CryptProtectData,CRYPT_INTEGER_BLOB,CRYPTPROTECT_UI_FORBIDDEN}};
-        let dir=std::env::temp_dir().join(format!("daozai-claude-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let dir=std::env::temp_dir().join(format!("floatisle-claude-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         let data=dir.join("Claude-Data/claude_example");fs::create_dir_all(&data).unwrap();let path=data.join("config.json");
         let key=[7u8;32];let input=CRYPT_INTEGER_BLOB{cbData:32,pbData:key.as_ptr().cast_mut()};let mut output=CRYPT_INTEGER_BLOB::default();
         unsafe{CryptProtectData(&input,None,None,None,None,CRYPTPROTECT_UI_FORBIDDEN,&mut output).unwrap();}
@@ -113,7 +113,7 @@ mod tests {
         config.accounts[0].alias="保留桌面版备注".into();config.accounts[0].enabled=false;let original=config.clone();
         assert_eq!(config.import_claude(&path,"").unwrap(),0);assert_eq!(config,original);assert_eq!(credentials(&config.accounts[0]).unwrap().token,"synthetic-personal");
         assert_eq!(fs::read_to_string(&path).unwrap(),source);assert_eq!(fs::read_to_string(data.join("Local State")).unwrap(),state);
-        let exported=config.json().to_string();assert!(!exported.contains("synthetic-personal")&&!exported.contains("refreshToken"),"岛仔配置不能复制原客户端令牌");
+        let exported=config.json().to_string();assert!(!exported.contains("synthetic-personal")&&!exported.contains("refreshToken"),"FloatIsle配置不能复制原客户端令牌");
         fs::write(&path,json!({"oauth:tokenCacheV2":sealed(&json!({"acct:other|client:org:https://api.anthropic.com:user:profile":{"token":"synthetic-other","expiresAt":4102444800000i64}}))}).to_string()).unwrap();
         assert!(credentials(&config.accounts[0]).is_err(),"客户端切换账号后不能把另一账号额度显示到旧账号上");
         let _=fs::remove_dir_all(dir);

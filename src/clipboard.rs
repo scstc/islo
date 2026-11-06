@@ -145,7 +145,7 @@ pub fn preview(text: &str) -> String {
 
 #[cfg(windows)]
 pub fn watch(shared: Shared, repaint: impl Fn() + Send + 'static) {
-    std::thread::Builder::new().name("daozai-clipboard".into()).spawn(move || {
+    std::thread::Builder::new().name("floatisle-clipboard".into()).spawn(move || {
         // 启动失败（极少见）时剪贴板页只是没有新记录，不影响其他功能。
         let _ = win::run(shared, Box::new(repaint));
     }).ok();
@@ -155,7 +155,7 @@ pub fn watch(shared: Shared, repaint: impl Fn() + Send + 'static) {
 pub fn watch(_shared: Shared, _repaint: impl Fn() + Send + 'static) {}
 
 #[cfg(windows)]
-const HISTORY_COPY_FORMAT: &str = "Daozai.ClipboardHistoryCopy";
+const HISTORY_COPY_FORMAT: &str = "FloatIsle.ClipboardHistoryCopy";
 
 #[cfg(windows)]
 pub fn copy_history(text: &str) -> bool {
@@ -248,7 +248,7 @@ mod win {
     pub fn run(shared: Shared, repaint: Box<dyn Fn() + Send>) -> windows::core::Result<()> {
         unsafe {
             let instance = GetModuleHandleW(None)?;
-            let class = w!("DaozaiClipboardWatcher");
+            let class = w!("FloatIsleClipboardWatcher");
             let wc = WNDCLASSW { lpfnWndProc: Some(proc), hInstance: instance.into(), lpszClassName: class, ..Default::default() };
             RegisterClassW(&wc);
             let hwnd = CreateWindowExW(WINDOW_EX_STYLE(0), class, PCWSTR::null(), WINDOW_STYLE(0), 0, 0, 0, 0, HWND_MESSAGE, None, instance, None)?;
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn reopening_restores_history_and_respects_manual_cleanup() {
-        let path = std::env::temp_dir().join(format!("daozai-clip-{}.json", std::process::id()));
+        let path = std::env::temp_dir().join(format!("floatisle-clip-{}.json", std::process::id()));
         std::fs::write(&path, br#"[{"text":"old","at":"08:00"}]"#).unwrap();
         let mut history = History::load_from(path.clone());
         assert!(history.items[0].pinned);

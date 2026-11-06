@@ -40,7 +40,7 @@ mod tests {
     #[test]
     #[ignore="需要本机通知中心留有指定测试通知"]
     fn qq_notification_local_identity(){
-        let id=std::env::var("DAOZAI_QQ_TEST_ID").unwrap().parse().unwrap();
+        let id=std::env::var("FLOATISLE_QQ_TEST_ID").unwrap().parse().unwrap();
         use windows::UI::Notifications::{Management::UserNotificationListener,NotificationKinds};
         use windows::Win32::System::WinRT::{RoInitialize,RoUninitialize,RO_INIT_MULTITHREADED};
         unsafe { RoInitialize(RO_INIT_MULTITHREADED).unwrap(); }

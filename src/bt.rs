@@ -81,7 +81,7 @@ impl Drop for Service {
 pub fn spawn() -> Service {
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     let (stop, stopped)=std::sync::mpsc::channel();
-    std::thread::Builder::new().name("daozai-bluetooth".into()).spawn(move || {
+    std::thread::Builder::new().name("floatisle-bluetooth".into()).spawn(move || {
         #[cfg(windows)]
         let mut cache=Cache::default();
         loop {

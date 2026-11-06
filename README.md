@@ -1,18 +1,35 @@
-<div align="center">
-<img src="assets/daozai-logo.png" width="112" alt="岛仔" />
+# FloatIsle 26.4.1
 
-# 岛仔 · Daozai
+FloatIsle 是基于 [岛仔（Daozai）](https://github.com/Renly1994/xiaotang-daozai) 的独立桌面工具分支，保留原作的 MIT 许可证与第三方署名。本版基于上游 v0.6.61，加入世界时钟、离线地球和中英文切换。
+
+- 当前开发与发布分支：`26.4.1`。
+- 安装包：`FloatIsle-Setup-v26.4.1-x64.exe`；免安装包：`FloatIsle-v26.4.1-windows-x64.zip`。
+- 程序：`floatisle.exe`；默认安装到 `%LOCALAPPDATA%\Programs\FloatIsle`，数据位于 `%APPDATA%\FloatIsle`，可与原版岛仔并存。
+- 在「设置 → 常规 → 语言」切换中文或英文。当前覆盖世界时钟、导航和常规设置，其他功能页仍有中文。
+- 更新来源为 `scstc/xiaotang-daozai`，不使用上游原版更新包。
+- 吉祥物提供 20 种表情，可在「设置 → 常规 → 表情预览」选择。嘴型与状态映射适配自 [Aora Bot](https://github.com/sam70361/aora-bot)，适用其专用许可；详细授权见 [LICENSES.md](LICENSES.md)。
+
+![FloatIsle 表情预览](docs/images/floatisle-expressions.gif)
+
+本地构建安装包：`./scripts/package.ps1 -Toolchain 1.98.0 -NsisCompiler <makensis.exe 路径>`。
+
+以下功能说明沿袭上游项目；原作作者、素材来源和许可证见仓库内的署名与许可文件。
+
+<div align="center">
+<img src="assets/floatisle-logo.png" width="112" alt="FloatIsle" />
+
+# FloatIsle
 
 **让重要的信息，轻轻出现在屏幕顶部。**
 
 Windows 桌面伙伴 · 音乐与歌词 · 邮件验证码 · 日程提醒 · AI 额度
 
-[![Release](https://img.shields.io/github/v/release/Renly1994/xiaotang-daozai?color=6d65ff&label=下载)](https://github.com/Renly1994/xiaotang-daozai/releases/latest)
+[![Release](https://img.shields.io/github/v/release/scstc/xiaotang-daozai?color=6d65ff&label=下载)](https://github.com/scstc/xiaotang-daozai/releases/latest)
 [![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4)](#安装与更新)
 [![License](https://img.shields.io/badge/License-MIT-3cbf91)](LICENSE)
-[![CI](https://github.com/Renly1994/xiaotang-daozai/actions/workflows/ci.yml/badge.svg)](https://github.com/Renly1994/xiaotang-daozai/actions/workflows/ci.yml)
+[![CI](https://github.com/scstc/xiaotang-daozai/actions/workflows/ci.yml/badge.svg)](https://github.com/scstc/xiaotang-daozai/actions/workflows/ci.yml)
 
-[下载 Windows 版](https://github.com/Renly1994/xiaotang-daozai/releases/latest) · [使用指南](docs/USAGE.md) · [更新记录](CHANGELOG.md) · [反馈问题](https://github.com/Renly1994/xiaotang-daozai/issues)
+[下载 Windows 版](https://github.com/scstc/xiaotang-daozai/releases/latest) · [使用指南](docs/USAGE.md) · [更新记录](CHANGELOG.md) · [反馈问题](https://github.com/scstc/xiaotang-daozai/issues)
 
 </div>
 
@@ -20,7 +37,7 @@ Windows 桌面伙伴 · 音乐与歌词 · 邮件验证码 · 日程提醒 · AI
 
 ## 一个小岛，装下桌面上的小事
 
-岛仔贴在屏幕顶部，收起时是一条小刘海。鼠标靠近时展开，离开时收起；需要处理的信息出现时再提醒你。它由 Rust 和 egui 构建，不依赖 Electron。
+FloatIsle贴在屏幕顶部，收起时是一条小刘海。鼠标靠近时展开，离开时收起；需要处理的信息出现时再提醒你。它由 Rust 和 egui 构建，不依赖 Electron。
 
 | 功能 | 可以做什么 |
 | --- | --- |
@@ -66,11 +83,11 @@ Windows 桌面伙伴 · 音乐与歌词 · 邮件验证码 · 日程提醒 · AI
 
 ## 安装与更新
 
-1. 前往 [Releases](https://github.com/Renly1994/xiaotang-daozai/releases/latest)，下载安装版 `Daozai-Setup-v0.6.60-x64.exe`。
+1. 前往 [Releases](https://github.com/scstc/xiaotang-daozai/releases/latest)，下载安装版 `FloatIsle-Setup-v26.4.1-x64.exe`。
 2. 双击安装器，可修改安装位置、选择是否创建桌面快捷方式和开机自启，再点击「一键安装」。桌面快捷方式默认勾选，首次安装默认不开机自启；无需解压。
-3. 安装完成后打开「岛仔」，也可从桌面快捷方式启动。在托盘菜单打开设置，选择需要的功能。
+3. 安装完成后打开「FloatIsle」，也可从桌面快捷方式启动。在托盘菜单打开设置，选择需要的功能。
 
-需要免安装使用时，下载 `Daozai-v0.6.60-windows-x64.zip` 并完整解压，运行其中的 `daozai.exe`。程序仍默认使用当前用户的应用数据目录。
+需要免安装使用时，下载 `FloatIsle-v0.6.60-windows-x64.zip` 并完整解压，运行其中的 `floatisle.exe`。程序仍默认使用当前用户的应用数据目录。
 
 在「设置 → 关于」点击「检查更新」，可查看最新正式版及更新说明，选择「下载并安装」「浏览器下载」或「稍后」。应用内下载通过校验后会重启更新；也可在发布页下载后再次安装，原设置和记录会保留。卸载可通过 Windows「已安装的应用」完成；卸载同样保留用户数据。详细操作见 [使用指南](docs/USAGE.md)。
 
@@ -105,7 +122,7 @@ QQ 收信、邮件日程和飞书个人日历已进行真实账号测试；钉�
 ```powershell
 rustup default stable-x86_64-pc-windows-msvc
 cargo build --locked --release --bin daozai
-.\target\release\daozai.exe
+.\target\release\floatisle.exe
 ```
 
 运行测试及打包：
@@ -121,8 +138,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package.ps1
 
 ## 开源与致谢
 
-岛仔原创代码采用 [MIT License](LICENSE)。Rust 依赖、vendored 代码、第三方图标及品牌标识沿用各自的许可或权利声明；MIT 不授予这些服务的商标使用权，也不代表官方合作或认证。详见 [第三方声明](THIRD_PARTY_NOTICES.txt) 和 [依赖说明](docs/DEPENDENCIES.md)。
+FloatIsle 的主体代码采用 [MIT License](LICENSE)。Rust 依赖、vendored 代码、第三方图标及品牌标识沿用各自的许可或权利声明；MIT 不授予这些服务的商标使用权，也不代表官方合作或认证。详见 [第三方声明](THIRD_PARTY_NOTICES.txt) 和 [依赖说明](docs/DEPENDENCIES.md)。
 
 「悬浮云」皮肤作者：啵（[@hanhb123](https://github.com/hanhb123)）。
+
+表情适配来源：[Aora Bot](https://github.com/sam70361/aora-bot)，Copyright (c) 2026 sam70361，适用 Aora Bot License 1.1；完整授权范围见 [LICENSES.md](LICENSES.md)。
 
 感谢 egui／eframe、Rust 社区，以及提供参考与素材的开源项目。

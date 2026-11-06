@@ -2,10 +2,10 @@
 #[cfg(windows)]
 fn main(){
     let ctx=eframe::egui::Context::default();
-    let observations=daozai::system::observe(ctx.clone(),Default::default(),None);
-    let bluetooth=daozai::bt::spawn();
-    let media=daozai::smtc::shared();
-    let _enabled=daozai::smtc::spawn_poller(media.clone(),ctx);
+    let observations=floatisle::system::observe(ctx.clone(),Default::default(),None);
+    let bluetooth=floatisle::bt::spawn();
+    let media=floatisle::smtc::shared();
+    let _enabled=floatisle::smtc::spawn_poller(media.clone(),ctx);
     let start=std::time::Instant::now();let mut samples=0;
     while start.elapsed().as_secs()<360 {
         while observations.try_recv().is_ok(){samples+=1;}

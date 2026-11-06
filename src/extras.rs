@@ -1,4 +1,4 @@
-//! 设置、通知队列与岛仔表情。
+//! 设置、通知队列与FloatIsle表情。
 use crate::settings_theme::color as settings_color;
 use crate::app::{App, Cmd, Phase, HUD_TRACK_W, HUD_TRACK_X, HUD_W, PAGE_NAMES};
 use crate::paint::{Card, H};
@@ -180,6 +180,8 @@ impl App {
             if self.notice.is_some() || self.hud_notice.is_some() {PetState::Awake}else{PetState::Music}
         } else if self.pet.hovered {
             PetState::Curious
+        } else if !self.quota.busy.is_empty() {
+            PetState::Loading
         } else if self.idle_for() >= 180.0 {
             PetState::Sleeping
         } else if self.idle_for() >= self.opts.pet_idle {
@@ -295,7 +297,7 @@ impl App {
     }
     pub fn receive_notification(&mut self, app:String, id:String, body:String){
         if !self.settings.read_notifications || id.is_empty() || (self.settings.qq_only && id!="QQ"){return;}
-        // 岛仔自己发出的系统提醒会被通知中心回传；已在历史里的同一内容不再入队，避免重复显示。
+        // FloatIsle自己发出的系统提醒会被通知中心回传；已在历史里的同一内容不再入队，避免重复显示。
         if self.history.iter().any(|a|format!("{} · {}",a.title,a.body)==body){return;}
         if !self.notification_apps.observe(&id,&app) || !self.settings.notifications{return;}
         if id=="QQ"{self.mark_messenger(crate::app::Messenger::Qq,0,0);}
@@ -811,7 +813,7 @@ impl App {
             0=>{
                 let choices=[("吉祥物",self.settings.pet),("极简刘海",self.settings.minimal),("系统提示",self.settings.system_hud),("全屏隐藏",self.settings.hide_fullscreen)];
                 for (i,(name,on)) in choices.iter().enumerate(){let x=42.0+(i%2) as f32*169.0;let y=57.0+(i/2) as f32*27.0;let text=format!("{}  {}",name,if *on{"开"}else{"关"});if setting_button(c,x,y,158.0,&text,*on,&format!("general-{i}")){match i{0=>self.set_pet(!self.settings.pet),1=>self.set_minimal(!self.settings.minimal),2=>self.settings.system_hud=!self.settings.system_hud,_=>self.settings.hide_fullscreen=!self.settings.hide_fullscreen}}}
-                c.text(42.0,116.0,"岛仔收起时常驻；极简模式保留细线",10.5,W::Regular,theme::GRAY,H::Left);
+                c.text(42.0,116.0,"FloatIsle收起时常驻；极简模式保留细线",10.5,W::Regular,theme::GRAY,H::Left);
             }
             1=>{
                 let rows=[("每次",format!("{} ml",self.settings.serving_ml)),("间隔",format!("{} 分",self.settings.water_minutes)),("目标",format!("{:.1} L",self.water.goal_ml as f32/1000.0))];
@@ -946,13 +948,13 @@ fn support_author(ui:&mut egui::Ui){
         .corner_radius(10.0).show(ui,|ui|{
             ui.set_min_width(ui.available_width());
             ui.vertical_centered(|ui|{
-                ui.add(egui::Image::new(egui::include_image!("../assets/support/daozai-coffee.svg")).fit_to_exact_size(egui::vec2(211.0,110.0)));
+                ui.add(egui::Image::new(egui::include_image!("../assets/support/upstream-coffee.svg")).fit_to_exact_size(egui::vec2(211.0,110.0)));
             });
         });
     ui.add_space(9.0);
-    ui.label(egui::RichText::new("小唐维护 · 岛仔陪伴").size(10.5).color(accent));
+    ui.label(egui::RichText::new("小唐维护 · FloatIsle陪伴").size(10.5).color(accent));
     ui.label(egui::RichText::new("请小唐喝杯咖啡").size(19.0).strong());
-    ui.label("岛仔陪你认真生活，\n你的支持，陪小唐把它慢慢做好。");
+    ui.label("FloatIsle陪你认真生活，\n你的支持，陪小唐把它慢慢做好。");
     } else {
         let ctx=ui.ctx().clone();
         // 只解码一次并裁出二维码区域，按实际显示像素缩小：原图解码后两张合计约 17MB，缩小后不到 1MB。
@@ -1044,9 +1046,9 @@ impl App {
         self.updates.poll(ctx);
         self.updates.dialog_ui(ctx);
         if !self.settings_open{return;}
-        let id=egui::ViewportId::from_hash_of("daozai-settings");
+        let id=egui::ViewportId::from_hash_of("floatisle-settings");
         let focus_requested=std::mem::take(&mut self.settings_focus_requested);
-        ctx.show_viewport_immediate(id,egui::ViewportBuilder::default().with_title(locale.text("岛仔设置")).with_icon(theme::app_icon()).with_inner_size([690.0,560.0]).with_min_inner_size([600.0,450.0]).with_visible(false).with_active(false).with_window_level(egui::WindowLevel::Normal),|ctx,_|{
+        ctx.show_viewport_immediate(id,egui::ViewportBuilder::default().with_title(locale.text("FloatIsle设置")).with_icon(theme::app_icon()).with_inner_size([690.0,560.0]).with_min_inner_size([600.0,450.0]).with_visible(false).with_active(false).with_window_level(egui::WindowLevel::Normal),|ctx,_|{
             let dark=self.settings.settings_theme.dark(crate::settings_theme::system_dark(ctx));
             let original_style=ctx.style();
             let mut style=(*original_style).clone();
@@ -1217,7 +1219,7 @@ impl App {
                         settings_label(ui,locale.text("启动"));
                         settings_card(ui,|ui|{
                             let mut a=autostart;
-                            setting_row(ui,locale.text("开机启动"),locale.text("登录 Windows 时自动打开岛仔"),&mut a);
+                            setting_row(ui,locale.text("开机启动"),locale.text("登录 Windows 时自动打开FloatIsle"),&mut a);
                             if a!=autostart{self.pending.push(Cmd::ToggleAutostart);}
                         });
                         settings_label(ui,locale.text("岛体外观"));
@@ -1297,8 +1299,18 @@ impl App {
                             ui.separator();
 
                             let mut pet=self.settings.pet;
-                            setting_row(ui,locale.text("岛仔吉祥物"),locale.text("收起时常驻，播放音乐时一起唱歌"),&mut pet);
+                            setting_row(ui,locale.text("FloatIsle吉祥物"),locale.text("收起时常驻，播放音乐时一起唱歌"),&mut pet);
                             if pet!=self.settings.pet {self.set_pet(pet);}
+                            if pet {
+                                let can_preview=self.pet_enabled();
+                                settings_control_row_right(ui,locale.text("表情预览"),|ui|{
+                                    egui::ComboBox::from_id_salt("pet-expression").selected_text(self.pet.preview.label(locale)).width(112.0).show_ui(ui,|ui|{
+                                        for state in PetState::ALL {ui.selectable_value(&mut self.pet.preview,state,state.label(locale));}
+                                    });
+                                    if ui.add_enabled(can_preview,egui::Button::new(locale.text("预览"))).on_disabled_hover_text(locale.text("表情需要顶部停靠，并关闭极简或自动避让状态。")).clicked(){self.pet.react(self.pet.preview);}
+                                });
+                                settings_hint(ui,locale.text("收起小岛后播放所选表情，随后恢复自动状态。"));
+                            }
                         });
                         self.avoidance.settings(ui,&mut self.settings);
                         settings_label(ui,locale.text("声音与显示"));
@@ -1386,7 +1398,7 @@ impl App {
                             ui.separator();
                             setting_row(ui,"蓝牙通知","设备连接与断开提醒；关闭后停止蓝牙监听",&mut self.settings.bluetooth_notifications);
                             ui.separator();
-                            setting_row(ui,"岛仔提醒","在岛上显示饮水、专注和待办提醒",&mut self.settings.notifications);
+                            setting_row(ui,"FloatIsle提醒","在岛上显示饮水、专注和待办提醒",&mut self.settings.notifications);
                         });
                         settings_label(ui,"微信提醒");
                         settings_card(ui,|ui|{
@@ -1696,7 +1708,7 @@ impl App {
                         });
                     }
                     _=>{
-                        settings_label(ui,"岛仔 Daozai");
+                        settings_label(ui,"FloatIsle");
                         settings_card(ui,|ui|{
                             ui.horizontal(|ui|{
                                 ui.label(egui::RichText::new(format!("版本 {}",env!("CARGO_PKG_VERSION"))).size(13.0));
@@ -1710,7 +1722,13 @@ impl App {
                                 ui.hyperlink_to("CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/");
                             });
                         });
-                        settings_label(ui,"支持作者");
+                        ui.horizontal_wrapped(|ui|{
+                            ui.label("基于开源项目岛仔（Daozai）开发。");
+                            ui.hyperlink_to("FloatIsle 源码","https://github.com/scstc/xiaotang-daozai/tree/fork/floatisle");
+                            ui.hyperlink_to("原项目","https://github.com/Renly1994/xiaotang-daozai");
+                            ui.hyperlink_to("表情适配：Aora Bot","https://github.com/sam70361/aora-bot");
+                        });
+                        settings_label(ui,"支持原作者");
                         settings_card(ui,support_author);
                     }
                     }

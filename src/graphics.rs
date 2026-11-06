@@ -14,10 +14,10 @@ fn compatible(mut options:eframe::NativeOptions)->eframe::NativeOptions {
     options
 }
 
-/// 验收与排障：设置环境变量 `DAOZAI_RENDERER=wgpu` 直接使用兼容图形后端，
+/// 验收与排障：设置环境变量 `FLOATISLE_RENDERER=wgpu` 直接使用兼容图形后端，
 /// 在正常电脑上也能检查 OpenGL 失败后用户会看到的画面。
 fn forced_compatible()->bool {
-    std::env::var("DAOZAI_RENDERER").is_ok_and(|value|value.trim().eq_ignore_ascii_case("wgpu"))
+    std::env::var("FLOATISLE_RENDERER").is_ok_and(|value|value.trim().eq_ignore_ascii_case("wgpu"))
 }
 
 pub fn run(mut options:eframe::NativeOptions,mut launch:impl FnMut(eframe::NativeOptions)->eframe::Result<()>)->eframe::Result<()> {

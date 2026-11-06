@@ -4,7 +4,7 @@ fn main()->eframe::Result<()> {
     use eframe::egui;
     use raw_window_handle::{HasWindowHandle,RawWindowHandle};
     use windows::Win32::{Foundation::*,Graphics::Gdi::*,UI::WindowsAndMessaging::*};
-    struct Probe {native:daozai::native::Window,back:HWND,hwnd:HWND,start:std::time::Instant,checked:bool,reset:usize}
+    struct Probe {native:floatisle::native::Window,back:HWND,hwnd:HWND,start:std::time::Instant,checked:bool,reset:usize}
     impl Drop for Probe {fn drop(&mut self){unsafe{let _=DestroyWindow(self.back);}}}
     impl eframe::App for Probe {
         fn clear_color(&self,_:&egui::Visuals)->[f32;4]{[0.0;4]}
@@ -49,7 +49,7 @@ fn main()->eframe::Result<()> {
         }
     }
     let hidden_start=std::env::args().any(|arg|arg=="--hidden-start");
-    let opts=eframe::NativeOptions{viewport:egui::ViewportBuilder::default().with_title("岛仔透明合成回归检查").with_inner_size([320.0,160.0]).with_position([100.0,100.0]).with_decorations(false).with_transparent(std::env::args().any(|arg|arg=="--transparent")).with_visible(!hidden_start).with_active(false),..Default::default()};
+    let opts=eframe::NativeOptions{viewport:egui::ViewportBuilder::default().with_title("FloatIsle透明合成回归检查").with_inner_size([320.0,160.0]).with_position([100.0,100.0]).with_decorations(false).with_transparent(std::env::args().any(|arg|arg=="--transparent")).with_visible(!hidden_start).with_active(false),..Default::default()};
     eframe::run_native("透明合成回归检查",opts,Box::new(move |cc|{
         cc.egui_ctx.set_pixels_per_point(1.0);
         let RawWindowHandle::Win32(raw)=cc.window_handle().unwrap().as_raw() else {unreachable!()};
@@ -59,7 +59,7 @@ fn main()->eframe::Result<()> {
             GetWindowRect(hwnd,&mut rect).unwrap();
             CreateWindowExW(WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW,windows::core::w!("STATIC"),windows::core::w!(""),WS_POPUP|WS_VISIBLE|WINDOW_STYLE(6),rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top,None,None,None,None).unwrap()
         };
-        let native=daozai::native::Window::new(cc).unwrap();
+        let native=floatisle::native::Window::new(cc).unwrap();
         if hidden_start {unsafe{
             use windows::Win32::Graphics::Dwm::*;
             DwmEnableBlurBehindWindow(hwnd,&DWM_BLURBEHIND{dwFlags:DWM_BB_ENABLE,..Default::default()}).unwrap();

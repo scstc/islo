@@ -7,10 +7,10 @@ Unicode true
 !include "FileFunc.nsh"
 
 !ifndef APP_ID
-  !define APP_ID "Daozai"
+  !define APP_ID "FloatIsle"
 !endif
 !ifndef APP_NAME
-  !define APP_NAME "岛仔"
+  !define APP_NAME "FloatIsle"
 !endif
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}"
 Name "${APP_NAME}"
@@ -24,9 +24,9 @@ VIProductVersion "${APP_VERSION}.0"
 VIAddVersionKey /LANG=2052 "ProductName" "${APP_NAME}"
 VIAddVersionKey /LANG=2052 "FileDescription" "${APP_NAME}安装程序"
 VIAddVersionKey /LANG=2052 "FileVersion" "${APP_VERSION}"
-VIAddVersionKey /LANG=2052 "LegalCopyright" "岛仔贡献者"
-!define MUI_ICON "${PROJECT_DIR}\assets\daozai.ico"
-!define MUI_UNICON "${PROJECT_DIR}\assets\daozai.ico"
+VIAddVersionKey /LANG=2052 "LegalCopyright" "FloatIsle贡献者"
+!define MUI_ICON "${PROJECT_DIR}\assets\floatisle.ico"
+!define MUI_UNICON "${PROJECT_DIR}\assets\floatisle.ico"
 !define MUI_ABORTWARNING
 Var BrandIcon
 Var PathInput
@@ -36,26 +36,26 @@ Var DesktopChoice
 Var AutoStartChoice
 Page custom InstallPage InstallPageLeave
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_FINISHPAGE_TITLE "岛仔已安装"
+!define MUI_FINISHPAGE_TITLE "FloatIsle已安装"
 !define MUI_FINISHPAGE_TEXT "音乐、提醒和日常小事，现在都在桌面上的小岛里。"
-!define MUI_FINISHPAGE_RUN "$INSTDIR\daozai.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "打开岛仔"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\floatisle.exe"
+!define MUI_FINISHPAGE_RUN_TEXT "打开FloatIsle"
 !insertmacro MUI_PAGE_FINISH
-!define MUI_UNCONFIRMPAGE_TEXT_TOP "将卸载岛仔。设置、待办和连接记录会保留，重新安装后仍可使用。"
+!define MUI_UNCONFIRMPAGE_TEXT_TOP "将卸载FloatIsle。设置、待办和连接记录会保留，重新安装后仍可使用。"
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "SimpChinese"
-BrandingText "岛仔 · Daozai"
+BrandingText "FloatIsle"
 SetFont "Microsoft YaHei UI" 9
 
 Function .onInit
   ${IfNot} ${RunningX64}
-    MessageBox MB_OK|MB_ICONSTOP "岛仔需要 Windows 10 或 Windows 11 的 64 位系统。" /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "FloatIsle需要 Windows 10 或 Windows 11 的 64 位系统。" /SD IDOK
     SetErrorLevel 1
     Quit
   ${EndIf}
   ${IfNot} ${AtLeastWin10}
-    MessageBox MB_OK|MB_ICONSTOP "岛仔需要 Windows 10 或 Windows 11。" /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "FloatIsle需要 Windows 10 或 Windows 11。" /SD IDOK
     SetErrorLevel 1
     Quit
   ${EndIf}
@@ -87,11 +87,11 @@ Function .onInit
 FunctionEnd
 
 Function InstallPage
-  !insertmacro MUI_HEADER_TEXT "欢迎使用岛仔" "Windows 顶部的桌面伙伴"
+  !insertmacro MUI_HEADER_TEXT "欢迎使用FloatIsle" "Windows 顶部的桌面伙伴"
   nsDialogs::Create 1018
   Pop $0
   InitPluginsDir
-  File /oname=$PLUGINSDIR\brand.ico "${PROJECT_DIR}\assets\daozai.ico"
+  File /oname=$PLUGINSDIR\brand.ico "${PROJECT_DIR}\assets\floatisle.ico"
   ${NSD_CreateIcon} 0 6u 44u 44u ""
   Pop $0
   System::Call 'user32::LoadImageW(p 0, w "$PLUGINSDIR\brand.ico", i 1, i 64, i 64, i 0x10) p .r1'
@@ -128,7 +128,7 @@ FunctionEnd
 Function BrowseDirectory
   Pop $0
   ${NSD_GetText} $PathInput $0
-  nsDialogs::SelectFolderDialog "选择岛仔安装文件夹" "$0"
+  nsDialogs::SelectFolderDialog "选择FloatIsle安装文件夹" "$0"
   Pop $0
   ${If} $0 != "error"
     ${NSD_SetText} $PathInput "$0"
@@ -155,7 +155,7 @@ Function ValidateDirectory
   SetErrorLevel 0
   Return
   invalid:
-    MessageBox MB_OK|MB_ICONEXCLAMATION "请选择可写入的完整安装文件夹，例如 D:\Apps\Daozai。不要选择磁盘根目录或需要管理员权限的文件夹。" /SD IDOK
+    MessageBox MB_OK|MB_ICONEXCLAMATION "请选择可写入的完整安装文件夹，例如 D:\Apps\FloatIsle。不要选择磁盘根目录或需要管理员权限的文件夹。" /SD IDOK
     SetErrorLevel 1
     Abort
 FunctionEnd
@@ -192,27 +192,28 @@ Section "安装"
   Call ValidateDirectory
   SetOutPath "$INSTDIR"
   SetOverwrite on
-  File /oname=daozai.exe "${SOURCE_EXE}"
+  File /oname=floatisle.exe "${SOURCE_EXE}"
   File "${PROJECT_DIR}\LICENSE"
+  File "${PROJECT_DIR}\LICENSES.md"
   File "${PROJECT_DIR}\THIRD_PARTY_NOTICES.txt"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   ${If} $DesktopChoice == 1
-    CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\daozai.exe"
+    CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\floatisle.exe"
   ${Else}
     Delete "$DESKTOP\${APP_NAME}.lnk"
   ${EndIf}
   ${If} $AutoStartChoice == 1
-    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_ID}" '"$INSTDIR\daozai.exe"'
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_ID}" '"$INSTDIR\floatisle.exe"'
   ${Else}
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_ID}"
   ${EndIf}
-  CreateShortcut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\daozai.exe"
-  CreateShortcut "$SMPROGRAMS\${APP_NAME}设置.lnk" "$INSTDIR\daozai.exe" "--settings"
-  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "${APP_NAME} Daozai"
+  CreateShortcut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\floatisle.exe"
+  CreateShortcut "$SMPROGRAMS\${APP_NAME}设置.lnk" "$INSTDIR\floatisle.exe" "--settings"
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "${APP_NAME}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${APP_VERSION}"
-  WriteRegStr HKCU "${UNINSTALL_KEY}" "Publisher" "岛仔"
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "Publisher" "FloatIsle"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
-  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\daozai.exe,0"
+  WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\floatisle.exe,0"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr HKCU "${UNINSTALL_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
   WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoModify" 1
@@ -227,10 +228,11 @@ FunctionEnd
 
 Section "Uninstall"
   Call un.CheckClosed
-  Delete "$INSTDIR\daozai.exe"
-  Delete "$INSTDIR\daozai-previous.exe"
-  Delete "$INSTDIR\daozai-v0.2-backup.exe"
+  Delete "$INSTDIR\floatisle.exe"
+  Delete "$INSTDIR\floatisle-previous.exe"
+  Delete "$INSTDIR\floatisle-v0.2-backup.exe"
   Delete "$INSTDIR\LICENSE"
+  Delete "$INSTDIR\LICENSES.md"
   Delete "$INSTDIR\THIRD_PARTY_NOTICES.txt"
   Delete "$INSTDIR\uninstall.ps1"
   Delete "$INSTDIR\Uninstall.exe"
@@ -238,7 +240,7 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\${APP_NAME}.lnk"
   Delete "$SMPROGRAMS\${APP_NAME}设置.lnk"
   ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_ID}"
-  ${If} $0 == '"$INSTDIR\daozai.exe"'
+  ${If} $0 == '"$INSTDIR\floatisle.exe"'
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_ID}"
   ${EndIf}
   DeleteRegKey HKCU "${UNINSTALL_KEY}"
