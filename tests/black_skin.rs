@@ -1,10 +1,10 @@
-use floatisle::model::Settings;
+use islo::model::Settings;
 
 #[test]
 fn legacy_material_settings_are_retired() {
-    let path = std::env::temp_dir().join(format!("floatisle-black-skin-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("islo-black-skin-{}", std::process::id()));
     std::fs::create_dir_all(&path).unwrap();
-    std::env::set_var("FLOATISLE_DATA_DIR", &path);
+    std::env::set_var("ISLO_DATA_DIR", &path);
     for skin in ["glass", "clear", "black"] {
         std::fs::write(path.join("settings.txt"), format!("material={skin}\npet=0\n")).unwrap();
         let settings = Settings::load();

@@ -22,7 +22,7 @@ pub(crate) struct Cache {
 impl Cache {
     fn start(&mut self,ctx:egui::Context,load:impl Fn(&Path)->Loaded+Send+'static){
         let(tx,requests)=mpsc::sync_channel::<PathBuf>(8);let(results,rx)=mpsc::sync_channel(8);
-        std::thread::Builder::new().name("floatisle-thumbnails".into()).spawn(move||{
+        std::thread::Builder::new().name("islo-thumbnails".into()).spawn(move||{
             #[cfg(windows)] let initialized=unsafe{windows::Win32::System::Com::CoInitializeEx(None,windows::Win32::System::Com::COINIT_APARTMENTTHREADED).is_ok()};
             while let Ok(path)=requests.recv(){
                 let preview=load(&path);

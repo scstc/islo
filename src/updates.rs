@@ -2,9 +2,9 @@
 use eframe::egui;
 use std::{io::{Read, Write}, path::PathBuf, sync::{mpsc::{self, Receiver}, Arc, atomic::{AtomicBool, Ordering}}, time::Duration};
 
-const REPOSITORY: &str = "https://github.com/scstc/xiaotang-daozai";
-const API: &str = "https://api.github.com/repos/scstc/xiaotang-daozai/releases/latest";
-const RELEASES: &str = "https://github.com/scstc/xiaotang-daozai/releases/latest";
+const REPOSITORY: &str = "https://github.com/scstc/islo";
+const API: &str = "https://api.github.com/repos/scstc/islo/releases/latest";
+const RELEASES: &str = "https://github.com/scstc/islo/releases/latest";
 
 #[derive(Clone, Debug)]
 struct Release { version: String, notes: String, page: String, package: Option<Package> }
@@ -107,8 +107,8 @@ impl State {
             ctx.load_texture("update-logo", egui::ColorImage::from_rgba_unmultiplied([icon.width as usize,icon.height as usize],&icon.rgba),egui::TextureOptions::LINEAR)
         }).id();
         let installing = self.rx.is_some() && self.cancel.is_none();
-        ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("floatisle-update"),
-            egui::ViewportBuilder::default().with_title("FloatIsle更新").with_icon(theme::app_icon())
+        ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("islo-update"),
+            egui::ViewportBuilder::default().with_title("islo更新").with_icon(theme::app_icon())
                 .with_inner_size([520.0, 416.0]).with_resizable(false).with_decorations(false)
                 .with_transparent(true).with_active(true), |ctx, _| {
                 if focus {
@@ -150,9 +150,9 @@ impl State {
                             ui.image((logo,egui::vec2(52.0,52.0)));
                             ui.add_space(4.0);
                             ui.vertical(|ui| {
-                                ui.label(egui::RichText::new("FloatIsle有新版本了").font(theme::font(21.0,W::Semibold)));
+                                ui.label(egui::RichText::new("islo有新版本了").font(theme::font(21.0,W::Semibold)));
                                 ui.horizontal(|ui| {
-                                    ui.label(egui::RichText::new(option_env!("FLOATISLE_BUILD_LABEL").unwrap_or(env!("CARGO_PKG_VERSION"))).color(theme::DIM));
+                                    ui.label(egui::RichText::new(option_env!("ISLO_BUILD_LABEL").unwrap_or(env!("CARGO_PKG_VERSION"))).color(theme::DIM));
                                     ui.label(egui::RichText::new("→").color(theme::DIM));
                                     egui::Frame::new().fill(theme::alpha_blue(0.12)).corner_radius(6.0)
                                         .inner_margin(egui::Margin::symmetric(8,3)).show(ui, |ui| {
@@ -229,7 +229,7 @@ fn clip_update_window(rect: egui::Rect, scale: f32) {
     unsafe extern "system" fn visit(hwnd: HWND, data: LPARAM) -> BOOL {
         let mut title = [0u16; 64];
         let len = GetWindowTextW(hwnd, &mut title) as usize;
-        if String::from_utf16_lossy(&title[..len]) != "FloatIsle更新" { return BOOL(1); }
+        if String::from_utf16_lossy(&title[..len]) != "islo更新" { return BOOL(1); }
         let &(rect, scale) = &*(data.0 as *const (egui::Rect, f32));
         let region = update_window_region(rect, scale);
         let old = CreateRectRgn(0, 0, 0, 0);
@@ -272,7 +272,7 @@ fn http_agent() -> Result<ureq::Agent, String> {
 
 fn check() -> Result<Option<Release>, String> {
     let response = http_agent()?
-        .get(API).set("User-Agent", concat!("FloatIsle/", env!("CARGO_PKG_VERSION")))
+        .get(API).set("User-Agent", concat!("islo/", env!("CARGO_PKG_VERSION")))
         .set("Accept", "application/vnd.github+json").call().map_err(|error| match error {
             ureq::Error::Status(403 | 429, _) => "检查过于频繁，请稍后重试".to_owned(),
             ureq::Error::Status(404, _) => "暂未找到正式版本，请查看发布页".to_owned(),
@@ -285,7 +285,7 @@ fn check() -> Result<Option<Release>, String> {
 
 fn release_info(value: &serde_json::Value, current: &str) -> Result<Option<Release>, String> {
     let Some(tag) = parse_release(value, current)? else { return Ok(None); };
-    let name = format!("FloatIsle-v{}-windows-x64.zip", tag.trim_start_matches('v'));
+    let name = format!("islo-v{}-windows-x64.zip", tag.trim_start_matches('v'));
     let expected = format!("{REPOSITORY}/releases/download/{tag}/{name}");
     let package = value["assets"].as_array().and_then(|assets| assets.iter().find(|asset| asset["name"] == name))
         .and_then(|asset| {
@@ -301,7 +301,7 @@ fn release_info(value: &serde_json::Value, current: &str) -> Result<Option<Relea
 
 fn download(release: &Release, tx: &mpsc::Sender<Event>, cancel: &AtomicBool) -> Result<PathBuf, String> {
     let package = release.package.as_ref().ok_or("请通过浏览器下载此版本")?;
-    let root = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).ok_or("无法找到更新缓存目录")?.join("FloatIsle/Updates");
+    let root = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).ok_or("无法找到更新缓存目录")?.join("islo/Updates");
     let work = root.join(format!("{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()));
     std::fs::create_dir_all(&work).map_err(|_| "无法创建更新缓存")?;
     let result = (|| {
@@ -461,8 +461,8 @@ mod tests {
     fn only_matching_verified_windows_package_can_install() {
         let mut value = release("v0.6.40");
         value["body"] = "更新说明".into();
-        value["assets"] = serde_json::json!([{"name":"FloatIsle-v0.6.40-windows-x64.zip",
-            "browser_download_url":format!("{REPOSITORY}/releases/download/v0.6.40/FloatIsle-v0.6.40-windows-x64.zip"),
+        value["assets"] = serde_json::json!([{"name":"islo-v0.6.40-windows-x64.zip",
+            "browser_download_url":format!("{REPOSITORY}/releases/download/v0.6.40/islo-v0.6.40-windows-x64.zip"),
             "size":123,"digest":format!("sha256:{}", "a".repeat(64))}]);
         let parsed = release_info(&value, "0.6.39").unwrap().unwrap();
         assert!(parsed.package.is_some()); assert_eq!(parsed.notes, "更新说明");
@@ -473,10 +473,10 @@ mod tests {
         }
     }
     #[test]
-    fn floatisle_updates_accept_our_release_and_reject_upstream_packages() {
+    fn islo_updates_accept_our_release_and_reject_upstream_packages() {
         let mut value=release("v26.4.2");
-        let url="https://github.com/scstc/xiaotang-daozai/releases/download/v26.4.2/FloatIsle-v26.4.2-windows-x64.zip";
-        value["assets"]=serde_json::json!([{"name":"FloatIsle-v26.4.2-windows-x64.zip","browser_download_url":url,"size":123,"digest":format!("sha256:{}","a".repeat(64))}]);
+        let url="https://github.com/scstc/islo/releases/download/v26.4.2/islo-v26.4.2-windows-x64.zip";
+        value["assets"]=serde_json::json!([{"name":"islo-v26.4.2-windows-x64.zip","browser_download_url":url,"size":123,"digest":format!("sha256:{}","a".repeat(64))}]);
         let parsed=release_info(&value,"26.4.1").unwrap().unwrap();
         assert_eq!(parsed.package.unwrap().url,url);
         value["assets"][0]["browser_download_url"]=url.replace("scstc/","Renly1994/").into();
@@ -522,7 +522,7 @@ mod tests {
         let mut state = State::default();
         let (tx, rx) = mpsc::channel(); state.rx = Some(rx);
         state.cancel = Some(Arc::new(AtomicBool::new(true)));
-        let work = std::env::temp_dir().join(format!("floatisle-cancel-test-{}", std::process::id()));
+        let work = std::env::temp_dir().join(format!("islo-cancel-test-{}", std::process::id()));
         std::fs::create_dir_all(&work).unwrap();
         tx.send(Event::Ready(work.clone())).unwrap();
         state.poll(&egui::Context::default());
@@ -558,10 +558,10 @@ mod tests {
     #[test]
     #[ignore = "按需导出发现新版时的设置界面，使用独立数据目录"]
     fn available_update_preview() {
-        let dest = std::path::PathBuf::from(std::env::var_os("FLOATISLE_UPDATE_PREVIEW_DIR").expect("需指定预览目录"));
+        let dest = std::path::PathBuf::from(std::env::var_os("ISLO_UPDATE_PREVIEW_DIR").expect("需指定预览目录"));
         std::fs::create_dir_all(&dest).unwrap();
-        let old = std::env::var_os("FLOATISLE_DATA_DIR");
-        std::env::set_var("FLOATISLE_DATA_DIR", dest.join("data"));
+        let old = std::env::var_os("ISLO_DATA_DIR");
+        std::env::set_var("ISLO_DATA_DIR", dest.join("data"));
         let ctx = egui::Context::default();
         let mut app = crate::app::App::new(&ctx, Default::default());
         app.updates.result = Some(Ok(Some(Release { version: "v0.6.50".into(),
@@ -575,7 +575,7 @@ mod tests {
         let capture = output.clone();
         egui::Context::set_immediate_viewport_renderer(move |ctx, mut viewport| {
             let id = viewport.ids.this;
-            assert_eq!(id, egui::ViewportId::from_hash_of("floatisle-update"));
+            assert_eq!(id, egui::ViewportId::from_hash_of("islo-update"));
             let raw = egui::RawInput {
                 viewport_id: id,
                 viewports: std::iter::once((id, egui::ViewportInfo { native_pixels_per_point: Some(1.0), ..Default::default() })).collect(),
@@ -610,8 +610,8 @@ mod tests {
             raster.free_textures(&child.textures_delta);
         }
         }
-        if let Some(old) = old { std::env::set_var("FLOATISLE_DATA_DIR", old); }
-        else { std::env::remove_var("FLOATISLE_DATA_DIR"); }
+        if let Some(old) = old { std::env::set_var("ISLO_DATA_DIR", old); }
+        else { std::env::remove_var("ISLO_DATA_DIR"); }
     }
 }
 

@@ -3,5 +3,5 @@ Copyright (c) 2026 sam70361
 Source: https://github.com/sam70361/aora-bot
 Revision: e990dc4e062a11a4fd8a09095ca5099122d7f3dd
 Adapted vocabulary: packages/engine/src/face/features.ts and packages/engine/src/motion/states.ts
-Native Rust drawing and FloatIsle state integration: FloatIsle contributors.
+Native Rust drawing and islo state integration: islo contributors.
 The Aora Bot portions remain subject to Aora Bot License 1.1 (see LICENSE).

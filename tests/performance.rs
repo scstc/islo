@@ -20,11 +20,11 @@ fn sample()->(f64,usize,usize){unsafe{
 }}
 
 #[test]
-#[ignore="读取本机系统服务及已配置账号；通过 FLOATISLE_PERF_SERVICE 选择采样模块"]
+#[ignore="读取本机系统服务及已配置账号；通过 ISLO_PERF_SERVICE 选择采样模块"]
 fn background_service_sample(){
-    let service=std::env::var("FLOATISLE_PERF_SERVICE").unwrap_or_else(|_|"idle".into());
+    let service=std::env::var("ISLO_PERF_SERVICE").unwrap_or_else(|_|"idle".into());
     let context=eframe::egui::Context::default();
-    let media=floatisle::smtc::shared();
+    let media=islo::smtc::shared();
     let(mut bluetooth,mut system,mut notifications)=(None,None,None);
     let mut mail=None;
     let mut mail_events=Vec::new();
@@ -32,17 +32,17 @@ fn background_service_sample(){
     let (mut quota_ok,mut quota_failed)=(0,0);
     let (mut calendar_events,mut quota_events)=(Vec::new(),Vec::new());
     match service.as_str(){
-        "media"=>{floatisle::smtc::spawn_poller(media.clone(),context);},
-        "bluetooth"=>bluetooth=Some(floatisle::bt::spawn()),
-        "system"=>system=Some(floatisle::system::observe(context,Default::default(),None)),
-        "notifications"=>notifications=Some(floatisle::system::connect(context,false).expect("已有通知权限")),
+        "media"=>{islo::smtc::spawn_poller(media.clone(),context);},
+        "bluetooth"=>bluetooth=Some(islo::bt::spawn()),
+        "system"=>system=Some(islo::system::observe(context,Default::default(),None)),
+        "notifications"=>notifications=Some(islo::system::connect(context,false).expect("已有通知权限")),
         "mail"=>{
-            let accounts=floatisle::mail::load_accounts().into_iter().filter(|a|a.enabled).take(1).collect::<Vec<_>>();
+            let accounts=islo::mail::load_accounts().into_iter().filter(|a|a.enabled).take(1).collect::<Vec<_>>();
             assert_eq!(accounts.len(),1,"需要一个已配置邮箱");
-            let worker=floatisle::mail::Service::start();worker.sync(&accounts,120);mail=Some(worker);
+            let worker=islo::mail::Service::start();worker.sync(&accounts,120);mail=Some(worker);
         },
-        "calendar"=>{let configs=floatisle::calendar::load_configs();println!("configured_accounts={}",configs.len());let worker=floatisle::calendar::Service::start();worker.configure(configs,true);calendar=Some(worker);},
-        "quota"=>{let config=floatisle::quota::Config::load();let accounts=config.accounts.iter().filter(|a|config.enabled && a.enabled).cloned().collect::<Vec<_>>();println!("configured_accounts={}",accounts.len());let worker=floatisle::quota::Service::start();worker.refresh(accounts);quota=Some((worker,config));},
+        "calendar"=>{let configs=islo::calendar::load_configs();println!("configured_accounts={}",configs.len());let worker=islo::calendar::Service::start();worker.configure(configs,true);calendar=Some(worker);},
+        "quota"=>{let config=islo::quota::Config::load();let accounts=config.accounts.iter().filter(|a|config.enabled && a.enabled).cloned().collect::<Vec<_>>();println!("configured_accounts={}",accounts.len());let worker=islo::quota::Service::start();worker.refresh(accounts);quota=Some((worker,config));},
         "idle"=>{},_=>panic!("未知采样服务"),
     }
     let before=sample();let started=Instant::now();
@@ -57,7 +57,7 @@ fn background_service_sample(){
     }
     let after=sample();
     if quota.is_some(){println!("successful_accounts={quota_ok} failed_accounts={quota_failed}");}
-    if calendar.is_some(){println!("successful_syncs={} failed_syncs={}",calendar_events.iter().filter(|e|matches!(e,floatisle::calendar::Event::Synced{..})).count(),calendar_events.iter().filter(|e|matches!(e,floatisle::calendar::Event::Failed{..})).count());}
-    if mail.is_some(){let count=mail_events.iter().filter(|event|matches!(event,floatisle::mail::Event::Mail{..})).count();assert!(count>0,"必须实际读到邮件才能比较占用");println!("loaded_messages={count}");}
+    if calendar.is_some(){println!("successful_syncs={} failed_syncs={}",calendar_events.iter().filter(|e|matches!(e,islo::calendar::Event::Synced{..})).count(),calendar_events.iter().filter(|e|matches!(e,islo::calendar::Event::Failed{..})).count());}
+    if mail.is_some(){let count=mail_events.iter().filter(|event|matches!(event,islo::mail::Event::Mail{..})).count();assert!(count>0,"必须实际读到邮件才能比较占用");println!("loaded_messages={count}");}
     println!("service={service} elapsed={:.2}s cpu={:.3}s working={:.2}MiB private={:.2}MiB",started.elapsed().as_secs_f64(),after.0-before.0,after.1 as f64/1048576.0,after.2 as f64/1048576.0);
 }

@@ -529,7 +529,7 @@ fn request_json(url:&str,referer:&str)->Result<serde_json::Value,FetchError> {
 
 fn request_json_with_retry(url:&str,referer:&str,retry:bool)->Result<serde_json::Value,FetchError> {
     let request=ureq::get(url)
-        .set("User-Agent",concat!("FloatIsle/",env!("CARGO_PKG_VERSION")," (Windows)"))
+        .set("User-Agent",concat!("islo/",env!("CARGO_PKG_VERSION")," (Windows)"))
         .set("Referer",referer)
         .set("Accept","application/json")
         .timeout(std::time::Duration::from_secs(5));
@@ -619,7 +619,7 @@ mod tests {
         let oversized="x".repeat(2*1024*1024+1);
         let (base,worker)=serve(vec![("200 OK",oversized)]);
         assert!(matches!(request_json(&base,&base),Err(FetchError::InvalidResponse(_))));worker.join().unwrap();
-        let path=std::env::temp_dir().join(format!("floatisle-large-lyrics-{}.lrc",std::process::id()));
+        let path=std::env::temp_dir().join(format!("islo-large-lyrics-{}.lrc",std::process::id()));
         std::fs::write(&path,format!("[00:01]{}","x".repeat(MAX_TEXT))).unwrap();
         assert!(read_cache(&path).is_none());std::fs::remove_file(path).unwrap();
         assert!(from_plain(&"x\n".repeat(MAX_LINES+1)).lines.is_empty());
@@ -928,7 +928,7 @@ mod tests {
 
     #[test]
     fn cached_lyrics_preserve_timing_and_invalid_caches_are_ignored() {
-        let path=std::env::temp_dir().join(format!("floatisle-lrc-cache-{}-{:?}.lrc",std::process::id(),std::thread::current().id()));
+        let path=std::env::temp_dir().join(format!("islo-lrc-cache-{}-{:?}.lrc",std::process::id(),std::thread::current().id()));
         let expected=parse_lrc("[00:01.234]first\n[00:12.567]second\n[01:03.891]third");
         write_cache(&path,&expected);
         let cached=read_cache(&path).unwrap();
@@ -1066,7 +1066,7 @@ mod tests {
 
     #[test]
     fn confirmed_missing_lyrics_are_remembered_for_a_week_but_failures_are_not(){
-        let path=std::env::temp_dir().join(format!("floatisle-negative-{}-{:?}.lrc",std::process::id(),std::thread::current().id()));
+        let path=std::env::temp_dir().join(format!("islo-negative-{}-{:?}.lrc",std::process::id(),std::thread::current().id()));
         let _=std::fs::remove_file(negative_path(&path));
         assert!(read_negative(&path).is_none());
         write_negative(&path,None);
@@ -1145,7 +1145,7 @@ mod tests {
         assert_eq!(result.unwrap().lines[0].text,"혹시 이런 나 땜에 힘들었니");first.join().unwrap();second.join().unwrap();
         assert!(take_trace()[0].ends_with("(罗马音)"),"诊断日志标明罗马音");
         // 已缓存的罗马音版本会被忽略。
-        let path=std::env::temp_dir().join(format!("floatisle-roman-{}.lrc",std::process::id()));
+        let path=std::env::temp_dir().join(format!("islo-roman-{}.lrc",std::process::id()));
         write_cache(&path,&parse_lrc("[00:01.00]Hoksi ireon na ttaeme himdeureonni\n[00:04.00]Amu daedap eomneun neo\n[00:07.00]Babocheoreom wae neoreul jiuji mothae"));
         assert!(read_cache(&path).filter(|lyrics|!romanized(title,lyrics)).is_none());std::fs::remove_file(path).unwrap();
     }

@@ -141,7 +141,7 @@ fn open_unread_with_paths(unread:crate::app::Unread,paths:&[String])->Result<(),
                 else if window_pid(window)==unread.pid && visible_main_frame(window,unread.source) && matches(window,paths) {Some(window)}
                 else {visible_main_window_of(unread.pid,unread.source,paths)};
             if let Some(target)=target {
-                // 异步恢复：微信卡住时也不能拖住FloatIsle的界面线程。
+                // 异步恢复：微信卡住时也不能拖住islo的界面线程。
                 if IsIconic(target).as_bool(){ShowWindowAsync(target,SW_RESTORE).ok().map_err(|_|"请从任务栏打开微信".to_string())?;}
                 if SetForegroundWindow(target).as_bool(){return Ok(());}
             }
@@ -375,7 +375,7 @@ impl Listener {
         unsafe {
             let message=RegisterWindowMessageW(w!("SHELLHOOK"));
             if message==0{return Err("无法注册微信提醒事件".into());}
-            let hwnd=CreateWindowExW(WS_EX_TOOLWINDOW,w!("STATIC"),w!("FloatIsleWechatListener"),WS_POPUP,0,0,0,0,None,None,None,None).map_err(|_|"无法创建微信监听窗口")?;
+            let hwnd=CreateWindowExW(WS_EX_TOOLWINDOW,w!("STATIC"),w!("isloWechatListener"),WS_POPUP,0,0,0,0,None,None,None,None).map_err(|_|"无法创建微信监听窗口")?;
             let state=Box::new(RefCell::new(State{message,taskbar_created:RegisterWindowMessageW(w!("TaskbarCreated")),registered:true,paths,burst:Vec::new(),pending:Vec::new(),ctx}));
             let listener=Self{hwnd,state};
             SetWindowSubclass(hwnd,Some(subclass),SUBCLASS_ID,(&*listener.state as *const RefCell<State>) as usize).ok().map_err(|_|"无法接入微信提醒事件")?;
@@ -529,7 +529,7 @@ mod tests {
     #[test]
     #[ignore="需要已启动并位于后台的微信窗口；仅向测试窗口发送模拟事件"]
     fn local_wechat_background_window(){unsafe{
-        let target:isize=std::env::var("FLOATISLE_TEST_WECHAT_HWND").unwrap().parse().unwrap();
+        let target:isize=std::env::var("ISLO_TEST_WECHAT_HWND").unwrap().parse().unwrap();
         let listener=Listener::new(Default::default()).unwrap();
         let hwnd=listener.hwnd;
         let message=RegisterWindowMessageW(w!("SHELLHOOK"));

@@ -78,7 +78,7 @@ impl DragCapture {
 fn watch_drag(hwnd:HWND,ctx:eframe::egui::Context){
     let raw=hwnd.0 as isize;
     let mut was_down=false;
-    let _=std::thread::Builder::new().name("floatisle-drag-watch".into()).spawn(move||loop{
+    let _=std::thread::Builder::new().name("islo-drag-watch".into()).spawn(move||loop{
         std::thread::sleep(std::time::Duration::from_millis(80));
         unsafe {
             let hwnd=HWND(raw as *mut _);

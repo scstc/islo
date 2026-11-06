@@ -8,7 +8,7 @@ fn write_report(directory: &Path, title: &str, details: &str) -> std::io::Result
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
     std::fs::write(&path, format!(
-        "FloatIsle {}\n系统：{} / {}\n时间（Unix 秒）：{timestamp}\n{title}\n{details}\n",
+        "islo {}\n系统：{} / {}\n时间（Unix 秒）：{timestamp}\n{title}\n{details}\n",
         env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH,
     ))?;
     Ok(path)
@@ -22,13 +22,13 @@ fn message(directory: &Path, title: &str, details: &str) -> String {
 }
 
 pub fn report(title: &str, details: &str) {
-    let text = message(&floatisle::model::config_dir().join("diagnostics"), title, details);
+    let text = message(&islo::model::config_dir().join("diagnostics"), title, details);
     #[cfg(windows)]
     {
         use windows::core::{w, PCWSTR};
         use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
         let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
-        unsafe { MessageBoxW(None, PCWSTR(wide.as_ptr()), w!("FloatIsle"), MB_OK | MB_ICONERROR); }
+        unsafe { MessageBoxW(None, PCWSTR(wide.as_ptr()), w!("islo"), MB_OK | MB_ICONERROR); }
     }
     #[cfg(not(windows))]
     eprintln!("{text}");
@@ -36,10 +36,10 @@ pub fn report(title: &str, details: &str) {
 
 /// 仅记录最近一次启动停留的阶段，不记录账号或用户内容。
 pub fn startup(stage:&str) {
-    let directory=floatisle::model::config_dir().join("diagnostics");
+    let directory=islo::model::config_dir().join("diagnostics");
     if std::fs::create_dir_all(&directory).is_ok() {
         let _=std::fs::write(directory.join("last-startup.log"),format!(
-            "FloatIsle {}\n进程：{}\n启动阶段：{stage}\n",env!("CARGO_PKG_VERSION"),std::process::id()));
+            "islo {}\n进程：{}\n启动阶段：{stage}\n",env!("CARGO_PKG_VERSION"),std::process::id()));
     }
 }
 
@@ -51,7 +51,7 @@ pub fn graphics(cc:&eframe::CreationContext<'_>) {
     else if let Some(state)=&cc.wgpu_render_state {
         let info=state.adapter.get_info();format!("渲染器：{}\n图形后端：{:?}\n设备类型：{:?}\n",info.name,info.backend,info.device_type)
     }else{return;};
-    let directory=floatisle::model::config_dir().join("diagnostics");
+    let directory=islo::model::config_dir().join("diagnostics");
     if std::fs::create_dir_all(&directory).is_ok(){let _=std::fs::write(directory.join("last-graphics.log"),details);}
 }
 
@@ -60,7 +60,7 @@ pub fn install() {
         // 不写入 panic 的数据载荷，避免把邮件、凭据或登录信息带进日志。
         let location = info.location().map(|p| format!("{}:{}:{}", p.file(), p.line(), p.column()))
             .unwrap_or_else(|| "未知".into());
-        report("FloatIsle发生异常，请重新启动。", &format!(
+        report("islo发生异常，请重新启动。", &format!(
             "代码位置：{location}\n调用栈：\n{}", std::backtrace::Backtrace::force_capture(),
         ));
     }));
@@ -71,7 +71,7 @@ mod tests {
     use super::*;
 
     fn directory(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("floatisle-diagnostics-{}-{name}", std::process::id()))
+        std::env::temp_dir().join(format!("islo-diagnostics-{}-{name}", std::process::id()))
     }
 
     #[test]

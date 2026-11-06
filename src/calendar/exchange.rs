@@ -1,5 +1,5 @@
 //! Exchange ActiveSync 14.0（企业微信、自建或第三方 Exchange）：只读取日历，不发送日程修改命令。
-//! 服务器要求设备策略时只如实回报「部分执行」：FloatIsle不执行锁屏密码、远程擦除等管控。
+//! 服务器要求设备策略时只如实回报「部分执行」：islo不执行锁屏密码、远程擦除等管控。
 use super::{Config, Failure, Fetched, Provider};
 use chrono::{DateTime, Utc};
 use std::io::Read;
@@ -112,7 +112,7 @@ impl<'a> Session<'a> {
     fn provision(&mut self) -> Result<(), Failure> {
         self.provisioned = true;
         let label = self.cfg.provider.label();
-        let refused = || Failure::text(format!("{label}要求设备满足安全策略（如锁屏密码、远程擦除），FloatIsle不执行这些管控；请联系管理员允许不受管控的设备"));
+        let refused = || Failure::text(format!("{label}要求设备满足安全策略（如锁屏密码、远程擦除），islo不执行这些管控；请联系管理员允许不受管控的设备"));
         let first = command(&self.agent, self.cfg, self.password, "Provision", &provision_request(None), None)?;
         // 服务器下发远程擦除时绝不执行，直接停止同步。
         if first.child(PROVISION, 0x0c).is_some() { return Err(refused()); }
@@ -127,7 +127,7 @@ impl<'a> Session<'a> {
     }
 }
 
-/// 设备策略请求。确认时如实回报「部分执行」（2）：FloatIsle只读日历，不执行任何设备管控。
+/// 设备策略请求。确认时如实回报「部分执行」（2）：islo只读日历，不执行任何设备管控。
 fn provision_request(acknowledge: Option<&str>) -> Node {
     let mut policy = vec![node(PROVISION, 8, "MS-EAS-Provisioning-WBXML", vec![])];
     if let Some(key) = acknowledge { policy.extend([node(PROVISION, 9, key, vec![]), node(PROVISION, 0x0b, "2", vec![])]); }
@@ -142,7 +142,7 @@ fn top_status(n: &Node) -> &str {
 fn command(agent: &ureq::Agent, cfg: &Config, password: &str, name: &str, root: &Node, policy: Option<&str>) -> Result<Node, Failure> {
     let mut target = endpoint(cfg)?;
     // 固定匿名设备标识，完整快照按顺序读取，不保存同步键或日程正文。
-    target.query_pairs_mut().extend_pairs([("Cmd", name), ("User", cfg.username.as_str()), ("DeviceId", "FloatIsleCalendar01"), ("DeviceType", "FloatIsle")]);
+    target.query_pairs_mut().extend_pairs([("Cmd", name), ("User", cfg.username.as_str()), ("DeviceId", "isloCalendar01"), ("DeviceType", "islo")]);
     let mut request = agent.post(target.as_str())
         .set("Authorization", &super::basic_auth(&cfg.username, password))
         .set("MS-ASProtocolVersion", "14.0")
@@ -161,7 +161,7 @@ fn command(agent: &ureq::Agent, cfg: &Config, password: &str, name: &str, root: 
 fn check_status(n: &Node, page: u8, tag: u8, label: &str) -> Result<(), Failure> {
     match n.required(page, tag)? {
         "1" => Ok(()),
-        code if NEEDS_PROVISION.contains(&code) => Err(Failure::text(format!("{label}要求设备满足安全策略，FloatIsle不执行这些管控；请联系管理员允许不受管控的设备"))),
+        code if NEEDS_PROVISION.contains(&code) => Err(Failure::text(format!("{label}要求设备满足安全策略，islo不执行这些管控；请联系管理员允许不受管控的设备"))),
         code => Err(Failure::text(format!("{label}同步失败（Exchange {code}），请检查日历授权后重试"))),
     }
 }
@@ -624,12 +624,12 @@ mod tests {
     #[test]
     #[ignore = "显式验证企业微信账号；仅输出数量，成功后可按环境变量保存连接"]
     fn live_wecom_connection() {
-        let mut cfg = Config { provider: Provider::WeCom, username: std::env::var("FLOATISLE_WECOM_USER").unwrap(), href: None, server: None };
-        let password = std::env::var("FLOATISLE_WECOM_PASSWORD").unwrap();
+        let mut cfg = Config { provider: Provider::WeCom, username: std::env::var("ISLO_WECOM_USER").unwrap(), href: None, server: None };
+        let password = std::env::var("ISLO_WECOM_PASSWORD").unwrap();
         let month = super::super::fetch_month(&cfg, &password, chrono::Local::now().date_naive()).unwrap();
         let upcoming = super::super::fetch(&cfg, &password).unwrap();
         eprintln!("wecom month_events={} upcoming_events={}", month.events.len(), upcoming.events.len());
-        if std::env::var("FLOATISLE_WECOM_SAVE").as_deref() == Ok("1") {
+        if std::env::var("ISLO_WECOM_SAVE").as_deref() == Ok("1") {
             cfg.href = Some(month.href);
             super::super::save_connection(&cfg, &password, None).unwrap();
         }

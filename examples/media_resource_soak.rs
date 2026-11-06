@@ -2,16 +2,16 @@
 #[cfg(windows)]
 fn main(){
     use std::{time::{Duration,Instant},collections::HashSet,sync::atomic::Ordering};
-    use floatisle::{resources,smtc};
+    use islo::{resources,smtc};
     let seconds=std::env::args().nth(1).map(|s|s.parse().unwrap()).unwrap_or(180);
-    let directory=std::env::temp_dir().join(format!("floatisle-media-resources-{}",std::process::id()));
+    let directory=std::env::temp_dir().join(format!("islo-media-resources-{}",std::process::id()));
     let monitor=resources::Monitor::start(directory.clone()).unwrap();
     let state=smtc::shared();let poller=smtc::spawn_poller(state.clone(),Default::default());
     let start=Instant::now();let mut next=0;let mut tracks=HashSet::new();let mut covers=0;
     while start.elapsed()<Duration::from_secs(seconds){
         let elapsed=start.elapsed().as_secs();poller.store(elapsed%20<18,Ordering::Relaxed);
         let media=state.lock().unwrap().clone();
-        if media.title.starts_with("FloatIsle memory fixture"){tracks.insert(media.title);if media.artwork.is_some(){covers+=1;}}
+        if media.title.starts_with("islo memory fixture"){tracks.insert(media.title);if media.artwork.is_some(){covers+=1;}}
         if elapsed>=next {
             next=elapsed+5;let sample=resources::snapshot().unwrap();
             println!("seconds={elapsed} tracks={} covers={covers} private_mib={:.2} threads={} handles={} pollers={} artwork={} winrt={}",tracks.len(),sample.private_bytes as f64/1048576.0,sample.threads,sample.handles,resources::POLLER.active(),resources::ARTWORK.active(),resources::ASYNC.active());

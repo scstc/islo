@@ -1,5 +1,5 @@
 //! 灵动岛主体：状态、悬停形变、切页、顶栏与公共层。与平台无关——
-//! Windows 外壳（`main.rs`）和无窗口录制器（`floatisle-record`）共用同一份代码。
+//! Windows 外壳（`main.rs`）和无窗口录制器（`islo-record`）共用同一份代码。
 //!
 //! 时间一律来自 `Env::t`（秒），不直接读系统时钟，所以录屏可逐帧复现。
 
@@ -100,7 +100,7 @@ pub struct Env {
     /// 光标位置（与 `frame` 传入的 `win` 同一坐标系）；不在窗口附近时为 None。
     pub cursor: Option<Pos2>,
     pub idle_seconds: Option<f64>,
-    /// 前台浏览器的顶部是否与岛重叠；FloatIsle自身窗口或暂不可读时为 None。
+    /// 前台浏览器的顶部是否与岛重叠；islo自身窗口或暂不可读时为 None。
     pub browser_at_top: Option<bool>,
     pub media: NowPlaying,
     /// 系统主音量（0..100, 是否静音）；v0.5.4 音量条与系统双向同步。
@@ -1045,12 +1045,12 @@ impl App {
 
     /// 录制/截图用的邮件样例（只在 `record` feature 下编译）。
     ///
-    /// `FLOATISLE_MAIL_DEMO=1|code` 面板带验证码，`=list` 只列邮件，`=fail` 用假授权码走一次
+    /// `ISLO_MAIL_DEMO=1|code` 面板带验证码，`=list` 只列邮件，`=fail` 用假授权码走一次
     /// 「测试连接失败」，方便在没有真实邮箱时验收失败路径。
     #[cfg(feature = "record")]
     pub fn mail_demo(&mut self) {
         use mail::{Account, Item, Provider, Status};
-        let mode = std::env::var("FLOATISLE_MAIL_DEMO").unwrap_or_default();
+        let mode = std::env::var("ISLO_MAIL_DEMO").unwrap_or_default();
         self.settings_tab = 7;
         if mode == "fail" {
             self.mail.form.provider = Provider::Qq;
@@ -1133,11 +1133,11 @@ impl App {
 
     /// 录制/截图用的日程样例（只在 `record` feature 下编译）。
     ///
-    /// `FLOATISLE_CAL_DEMO=paste|fail|connected|alert`。
+    /// `ISLO_CAL_DEMO=paste|fail|connected|alert`。
     #[cfg(feature = "record")]
     pub fn calendar_demo(&mut self) {
         use calendar::Provider;
-        let mode = std::env::var("FLOATISLE_CAL_DEMO").unwrap_or_default();
+        let mode = std::env::var("ISLO_CAL_DEMO").unwrap_or_default();
         self.calendar.form.provider = Provider::Feishu;
         self.calendar.form.username = "demo***@feishu.example".into();
         self.settings_tab = 8;
@@ -2375,7 +2375,7 @@ impl App {
             4 => ("待办", "清单", theme::GREEN),
             5 => ("邮箱", "", theme::CYAN),
             6 => ("AI", "额度", theme::SOFT_GREEN),
-            _ => ("FloatIsle", "设置", theme::WHITE),
+            _ => ("islo", "设置", theme::WHITE),
         };
         let locale=self.settings.locale();
         let wa = c.text(15.0, base, locale.text(a), size::TITLE, W::Bold, theme::WHITE, H::Left);

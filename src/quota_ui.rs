@@ -525,7 +525,7 @@ mod tests {
         }
     }
     #[test] fn restart_restores_last_balance_only_for_the_bound_account(){
-        let path=std::env::temp_dir().join(format!("floatisle-quota-restart-{}.json",std::process::id()));
+        let path=std::env::temp_dir().join(format!("islo-quota-restart-{}.json",std::process::id()));
         let mut config=Config::default();
         let id=config.connect_workbuddy("fixture".into(),"测试账号".into());
         let mut state=State::restore(config.clone(),path.clone());

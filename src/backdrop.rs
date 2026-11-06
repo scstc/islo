@@ -25,7 +25,7 @@ impl Sampler {
         let shared = Arc::new(Mutex::new(Shared::default()));
         let stop = Arc::new(AtomicBool::new(false));
         let (state, flag) = (shared.clone(), stop.clone());
-        let _ = std::thread::Builder::new().name("floatisle-backdrop".into()).spawn(move || {
+        let _ = std::thread::Builder::new().name("islo-backdrop".into()).spawn(move || {
             while !flag.load(Ordering::Relaxed) {
                 let points = state.lock().map(|s| s.points.clone()).unwrap_or_default();
                 if !points.is_empty() {

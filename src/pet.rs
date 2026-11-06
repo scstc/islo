@@ -1,4 +1,4 @@
-//! FloatIsle的原生矢量表情与连续形变。
+//! islo的原生矢量表情与连续形变。
 //! Mouth vocabulary and expression mapping adapted from Aora Bot, Copyright (c) 2026 sam70361.
 //! Aora Bot License 1.1: third_party/aora-bot/LICENSE; source and revision in NOTICE.
 use crate::anim::{approach, lerp, smoothstep};
@@ -40,7 +40,7 @@ impl PetState {
 #[derive(Clone,Copy,Debug)]
 struct Mouth {width:f32,bend:f32,open:f32,wave:f32,skew:f32}
 impl Mouth {
-    // Aora Bot's line-face mouth units, fitted to FloatIsle's compact resident slot.
+    // Aora Bot's line-face mouth units, fitted to islo's compact resident slot.
     fn target(state:PetState)->Self {
         let (width,bend,open,wave,skew)=match state {
             PetState::Happy|PetState::Satisfied=>(0.6,0.22,0.0,0.0,0.0),
@@ -74,12 +74,12 @@ impl Mouth {
 mod tests {
     use super::*;
     #[test]
-    #[ignore="按需导出 FloatIsle 全部表情的连续帧"]
+    #[ignore="按需导出 islo 全部表情的连续帧"]
     fn expression_preview_gallery() {
         use eframe::egui::{self,Pos2,Rect,Vec2};
-        let dest=std::path::PathBuf::from(std::env::var_os("FLOATISLE_PET_PREVIEW_DIR").expect("需指定预览目录"));
+        let dest=std::path::PathBuf::from(std::env::var_os("ISLO_PET_PREVIEW_DIR").expect("需指定预览目录"));
         std::fs::create_dir_all(&dest).unwrap();
-        let old=std::env::var_os("FLOATISLE_DATA_DIR");std::env::set_var("FLOATISLE_DATA_DIR",dest.join("data"));
+        let old=std::env::var_os("ISLO_DATA_DIR");std::env::set_var("ISLO_DATA_DIR",dest.join("data"));
         let ctx=egui::Context::default();let _app=crate::app::App::new(&ctx,crate::app::Options{fetch_lyrics:false,pet_idle:1e9});
         let mut pets:Vec<_>=PetState::ALL.into_iter().map(|_|Pet::default()).collect();
         let mut raster=crate::preview_raster::Raster::new(800,480);
@@ -88,7 +88,7 @@ mod tests {
             let out=ctx.run(egui::RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,Vec2::new(800.0,480.0))),time:Some(t),..Default::default()},|ctx|{
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx,|ui|{
                     ui.painter().rect_filled(ui.max_rect(),0.0,Color32::from_rgb(12,14,18));
-                    ui.painter().text(Pos2::new(18.0,20.0),egui::Align2::LEFT_CENTER,"FloatIsle · 20 expressions",egui::FontId::proportional(18.0),theme::WHITE);
+                    ui.painter().text(Pos2::new(18.0,20.0),egui::Align2::LEFT_CENTER,"islo · 20 expressions",egui::FontId::proportional(18.0),theme::WHITE);
                     for (index,(pet,state)) in pets.iter_mut().zip(PetState::ALL).enumerate() {
                         let origin=Pos2::new((index%5)as f32*160.0,(index/5)as f32*110.0+40.0);
                         let rect=Rect::from_min_size(origin,Vec2::new(160.0,110.0));
@@ -106,7 +106,7 @@ mod tests {
             if frame==47 {image::save_buffer(dest.join("expressions.png"),&rgba,800,480,image::ColorType::Rgba8).unwrap();}
             raster.free_textures(&out.textures_delta);
         }
-        if let Some(old)=old {std::env::set_var("FLOATISLE_DATA_DIR",old);}else{std::env::remove_var("FLOATISLE_DATA_DIR");}
+        if let Some(old)=old {std::env::set_var("ISLO_DATA_DIR",old);}else{std::env::remove_var("ISLO_DATA_DIR");}
     }
     #[test]
     fn expression_changes_morph_and_hidden_previews_keep_their_playback_time() {

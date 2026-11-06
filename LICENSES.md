@@ -1,6 +1,6 @@
-# FloatIsle licensing
+# islo licensing
 
-The original Daozai code and the FloatIsle additions, except the expression adaptation described below, retain the MIT license in `LICENSE`.
+The original Daozai code and the islo additions, except the expression adaptation described below, retain the MIT license in `LICENSE`.
 
 The mouth vocabulary and expression adaptation in `src/pet.rs` are based on Aora Bot by sam70361 and remain subject to **Aora Bot License 1.1**. The complete license and source revision are preserved in `third_party/aora-bot/LICENSE` and `third_party/aora-bot/NOTICE`, and included in the distributed `THIRD_PARTY_NOTICES.txt`.
 

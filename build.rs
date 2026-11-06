@@ -1,4 +1,4 @@
-//! 把 FloatIsle 图标作为 RT_GROUP_ICON #1 编进 exe，供 LoadImageW(hInst, 1, ...) 取用。
+//! 把 islo 图标作为 RT_GROUP_ICON #1 编进 exe，供 LoadImageW(hInst, 1, ...) 取用。
 //! 不引入额外依赖：直接调用 Windows SDK 的 rc.exe，把 .res 交给链接器。
 
 use std::env;
@@ -31,12 +31,12 @@ fn find_rc() -> Option<PathBuf> {
 
 fn main() {
     println!("cargo:rerun-if-changed=app.rc");
-    println!("cargo:rerun-if-changed=assets/floatisle.ico");
+    println!("cargo:rerun-if-changed=assets/islo.ico");
     println!("cargo:rerun-if-changed=build.rs");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
-    let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join("floatisle.res");
+    let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join("islo.res");
     let Some(rc) = find_rc() else {
         println!("cargo:warning=rc.exe 未找到，跳过图标资源");
         return;

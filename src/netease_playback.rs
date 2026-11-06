@@ -423,7 +423,7 @@ mod tests{
     }
     #[test]
     fn native_log_handles_partial_utf8_and_new_process_without_stale_tracks(){
-        let dir=std::env::temp_dir().join(format!("floatisle-elog-{}",std::process::id()));std::fs::create_dir_all(&dir).unwrap();let path=dir.join("cloudmusic.elog");
+        let dir=std::env::temp_dir().join(format!("islo-elog-{}",std::process::id()));std::fs::create_dir_all(&dir).unwrap();let path=dir.join("cloudmusic.elog");
         let raw=encode(&(event(7,1000,&metadata())+&event(7,2000,"\"native播放资源load完成\",{\"songId\":\"123\"}")));
         let mut reader=Reader{pid:7,..Default::default()};
         for byte in &raw{reader.ingest(&[*byte],3000,false);}
@@ -440,7 +440,7 @@ mod tests{
     }
     #[test]
     fn native_log_resumes_from_queue_metadata_without_any_smtc_session(){
-        let dir=std::env::temp_dir().join(format!("floatisle-elog-queue-{}",std::process::id()));let queue=dir.join("webdata/file");std::fs::create_dir_all(&queue).unwrap();
+        let dir=std::env::temp_dir().join(format!("islo-elog-queue-{}",std::process::id()));let queue=dir.join("webdata/file");std::fs::create_dir_all(&queue).unwrap();
         let data=serde_json::json!({"list":[{"track":{"id":123,"name":"续播歌曲","artists":[{"name":"歌手"}],"duration":240000,"album":{"picUrl":"https://p1.music.126.net/resume.jpg"}}}]});
         std::fs::write(queue.join("playingList"),data.to_string()).unwrap();let path=dir.join("cloudmusic.elog");
         std::fs::write(&path,encode(&(event(9,1000,"\"native播放资源load完成\",{\"songId\":\"123\"}")+&event(9,1100,"\"setPlayingPosition\",80")))).unwrap();

@@ -1,6 +1,6 @@
 //! 连续切歌后保留的堆内存应有界，字体预热和单帧临时分配不计入增长。
 use std::{alloc::{GlobalAlloc,Layout,System},sync::atomic::{AtomicUsize,Ordering}};
-use floatisle::app::{App,Env,Options,WIN_W,WIN_H};
+use islo::app::{App,Env,Options,WIN_W,WIN_H};
 use eframe::egui;
 
 struct CountingAllocator;
@@ -21,15 +21,15 @@ static ALLOCATOR:CountingAllocator=CountingAllocator;
 
 #[test]
 fn changing_songs_does_not_retain_per_song_animation_state(){
-    let root=std::env::temp_dir().join(format!("floatisle-lyrics-memory-{}",std::process::id()));
-    std::env::set_var("FLOATISLE_DATA_DIR",&root);
+    let root=std::env::temp_dir().join(format!("islo-lyrics-memory-{}",std::process::id()));
+    std::env::set_var("ISLO_DATA_DIR",&root);
     for expanded in [false,true] {
     let ctx=egui::Context::default();let mut app=App::new(&ctx,Options{fetch_lyrics:false,pet_idle:1e9});
     app.settings.island_lyrics=true;app.settings.pet=false;
     if expanded{app.show_page(0);}
-    let lyrics=floatisle::lyrics::parse_lrc("[00:00]切歌后的当前歌词\n[00:10]下一句歌词");
+    let lyrics=islo::lyrics::parse_lrc("[00:00]切歌后的当前歌词\n[00:10]下一句歌词");
     let mut env=Env{clock:"16:00:00".into(),today:"2026-11-04".into(),
-        media:floatisle::smtc::NowPlaying{source:"cloudmusic.exe".into(),artist:"测试".into(),duration:120.0,position:5.0,playing:true,..Default::default()},..Default::default()};
+        media:islo::smtc::NowPlaying{source:"cloudmusic.exe".into(),artist:"测试".into(),duration:120.0,position:5.0,playing:true,..Default::default()},..Default::default()};
     fn draw(ctx:&egui::Context,app:&mut App,env:&mut Env){
         env.t+=1.0/60.0;
         let _=ctx.run(egui::RawInput{time:Some(env.t),screen_rect:Some(egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(WIN_W,WIN_H))),..Default::default()},|ctx|{

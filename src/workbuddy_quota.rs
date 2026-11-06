@@ -106,7 +106,7 @@ pub fn fetch(agent:&ureq::Agent,account:&Account)->Result<Snapshot,(String,u64)>
     browser_snapshot(Some(id)).map(|(_,s)|s).map_err(|e|(e,30))
 }
 fn bridge(agent:&ureq::Agent,action:&str,args:Value)->Result<Value,String>{
-    let response=agent.post("http://127.0.0.1:10086/command").set("Content-Type","application/json").send_string(&json!({"action":action,"args":args,"session":"floatisle-workbuddy"}).to_string()).map_err(|_|if action=="list_browser_tabs"{"浏览器扩展未响应，等待恢复连接"}else{"浏览器会话响应超时，稍后重试"})?;
+    let response=agent.post("http://127.0.0.1:10086/command").set("Content-Type","application/json").send_string(&json!({"action":action,"args":args,"session":"islo-workbuddy"}).to_string()).map_err(|_|if action=="list_browser_tabs"{"浏览器扩展未响应，等待恢复连接"}else{"浏览器会话响应超时，稍后重试"})?;
     let mut raw=String::new();response.into_reader().take(2*1024*1024).read_to_string(&mut raw).map_err(|_|"读取浏览器会话失败")?;
     let value:Value=serde_json::from_str(&raw).map_err(|_|"浏览器扩展返回无效数据")?;
     if value["ok"]!=true{return Err("请检查 Kimi 浏览器扩展连接后重试".into());}Ok(value["data"].clone())
@@ -161,7 +161,7 @@ impl Connect {
     fn workbuddy_live_connect_local(){
         let (slot,snapshot)=browser_snapshot(None).expect("官网查询");
         let (_,second)=browser_snapshot(Some(&slot)).expect("账号绑定刷新");assert!(second.credits.is_some());
-        if std::env::var("FLOATISLE_WORKBUDDY_SAVE_ACCOUNT").as_deref()==Ok("1"){let mut config=super::super::Config::load();config.connect_workbuddy(slot,"WorkBuddy · 个人".into());config.save();}
+        if std::env::var("ISLO_WORKBUDDY_SAVE_ACCOUNT").as_deref()==Ok("1"){let mut config=super::super::Config::load();config.connect_workbuddy(slot,"WorkBuddy · 个人".into());config.save();}
         println!("官网查询成功，可用积分={}，分类={}，账号绑定刷新已验证",snapshot.credits.as_ref().unwrap().remaining,snapshot.credits.as_ref().unwrap().packages.len());
     }
     #[test]

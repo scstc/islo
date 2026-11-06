@@ -17,9 +17,9 @@ try {
     $controls.PlaybackStatus=[Windows.Media.MediaPlaybackStatus,Windows.Media,ContentType=WindowsRuntime]::Playing
     $display=$controls.DisplayUpdater
     $display.Type=[Windows.Media.MediaPlaybackType,Windows.Media,ContentType=WindowsRuntime]::Music
-    $display.MusicProperties.Title='FloatIsle memory fixture 0'
+    $display.MusicProperties.Title='islo memory fixture 0'
     $display.MusicProperties.Artist='Memory fixture'
-    $file=Await-Result ([Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]::GetFileFromPathAsync((Join-Path (Split-Path $PSScriptRoot -Parent) 'assets\floatisle-logo.png'))) ([Windows.Storage.StorageFile])
+    $file=Await-Result ([Windows.Storage.StorageFile,Windows.Storage,ContentType=WindowsRuntime]::GetFileFromPathAsync((Join-Path (Split-Path $PSScriptRoot -Parent) 'assets\islo-logo.png'))) ([Windows.Storage.StorageFile])
     $display.Thumbnail=[Windows.Storage.Streams.RandomAccessStreamReference,Windows.Storage.Streams,ContentType=WindowsRuntime]::CreateFromFile($file)
     $display.Update()
     $manager=Await-Result ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media.Control,ContentType=WindowsRuntime]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
@@ -28,7 +28,7 @@ try {
     $track=-1
     while($started.Elapsed.TotalSeconds -lt $Seconds){
         $next=[int][math]::Floor($started.Elapsed.TotalSeconds/2)
-        if($next -ne $track){$track=$next;$display.MusicProperties.Title='FloatIsle memory fixture '+$track;$display.Update()}
+        if($next -ne $track){$track=$next;$display.MusicProperties.Title='islo memory fixture '+$track;$display.Update()}
         Start-Sleep -Milliseconds 100
     }
 } finally {$player.Dispose()}

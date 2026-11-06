@@ -82,7 +82,7 @@ fn native_session(account:&Account)->Result<Session,String>{
 #[cfg(windows)]
 fn credential(slot:&str)->Result<keyring::Entry,String>{
     if slot.len()!=64 || !slot.bytes().all(|b|b.is_ascii_hexdigit()){return Err(LOGIN_ERROR.into());}
-    keyring::Entry::new("FloatIsle.GrokBot",slot).map_err(|_|"无法打开 Windows 凭据管理器".into())
+    keyring::Entry::new("islo.GrokBot",slot).map_err(|_|"无法打开 Windows 凭据管理器".into())
 }
 #[cfg(windows)]
 fn save_session(slot:&str,value:&Session)->Result<(),String>{
@@ -239,7 +239,7 @@ mod tests {
         unsafe{CryptProtectData(&input,PCWSTR::null(),None,None,None,CRYPTPROTECT_UI_FORBIDDEN,&mut output).unwrap();}
         let mut protected=b"DPAPI".to_vec();protected.extend_from_slice(unsafe{std::slice::from_raw_parts(output.pbData,output.cbData as usize)});
         unsafe{let _=LocalFree(HLOCAL(output.pbData.cast()));}
-        let dir=std::env::temp_dir().join(format!("floatisle-grok-dpapi-{}-{}",std::process::id(),chrono::Utc::now().timestamp_nanos_opt().unwrap()));fs::create_dir(&dir).unwrap();
+        let dir=std::env::temp_dir().join(format!("islo-grok-dpapi-{}-{}",std::process::id(),chrono::Utc::now().timestamp_nanos_opt().unwrap()));fs::create_dir(&dir).unwrap();
         fs::write(dir.join("Local State"),json!({"os_crypt":{"encrypted_key":STANDARD.encode(protected)}}).to_string()).unwrap();
         assert_eq!(native_key(&dir.join("sand-secrets.json")).unwrap(),key);
         let token=|subject:&str|format!("e30.{}.test",URL_SAFE_NO_PAD.encode(json!({"sub":subject}).to_string()));
@@ -277,7 +277,7 @@ mod tests {
     fn independent_login_round_trips_through_windows_credentials_and_can_be_removed(){
         struct Cleanup(keyring::Entry);
         impl Drop for Cleanup{fn drop(&mut self){let _=self.0.delete_credential();}}
-        let subject=format!("synthetic-floatisle-{}-{}",std::process::id(),chrono::Utc::now().timestamp_nanos_opt().unwrap());
+        let subject=format!("synthetic-islo-{}-{}",std::process::id(),chrono::Utc::now().timestamp_nanos_opt().unwrap());
         let token=format!("e30.{}.test",URL_SAFE_NO_PAD.encode(json!({"sub":subject}).to_string()));let slot=slot_of(&token).unwrap();let _cleanup=Cleanup(credential(&slot).unwrap());
         let auth=Session{token,refresh:Some("synthetic-refresh".into())};save_session(&slot,&auth).unwrap();let restored=stored_session(&slot).unwrap();assert_eq!(restored.token,auth.token);assert_eq!(restored.refresh,auth.refresh);
         let account=Account{id:"synthetic".into(),provider:super::super::Provider::GrokBot,alias:"测试".into(),source:PathBuf::new(),slot:Some(slot.clone()),enabled:true,pinned:true};forget(&account);assert!(stored_session(&slot).is_err());

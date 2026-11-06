@@ -7,15 +7,15 @@
 安装 Rust stable、Visual Studio C++ 构建工具和 Windows SDK，克隆仓库后运行：
 
 ```powershell
-cargo build --locked --bin floatisle
+cargo build --locked --bin islo
 cargo test --locked --all-targets --features record -- --test-threads=1
 ```
 
 为开发实例指定独立目录，避免覆盖日常使用数据：
 
 ```powershell
-$env:FLOATISLE_DATA_DIR = Join-Path $env:TEMP 'daozai-development'
-cargo run --locked --bin floatisle
+$env:ISLO_DATA_DIR = Join-Path $env:TEMP 'daozai-development'
+cargo run --locked --bin islo
 ```
 
 常规测试使用合成数据。带 `#[ignore]` 的真实账号测试或截图导出测试须按需要显式运行；不要在公共 CI 中连接私人账号。
@@ -31,7 +31,7 @@ cargo run --locked --bin floatisle
 | `src/quota*.rs` 及 provider 模块 | AI 额度与连接 |
 | `src/native.rs`、`src/system.rs` | 原生窗口、输入、拖放和系统事件 |
 | `src/ui_tests.rs` | 无窗口交互与布局回归测试 |
-| `src/bin/floatisle-record` | 合成数据演示与软件渲染器 |
+| `src/bin/islo-record` | 合成数据演示与软件渲染器 |
 | `vendor/` | 少量必要的上游补丁，见依赖说明 |
 | `installer/`、`scripts/` | 安装、卸载与打包 |
 

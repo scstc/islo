@@ -41,7 +41,7 @@ pub struct Observation {
 /// 跨进程输入法查询和 COM 状态采样留在后台，只在状态改变时唤醒界面。
 pub fn observe(ctx:eframe::egui::Context,initial:Snapshot,input:Option<crate::input::State>)->Receiver<Observation> {
     let(tx,rx)=mpsc::sync_channel(1);
-    std::thread::Builder::new().name("floatisle-system".into()).spawn(move||{
+    std::thread::Builder::new().name("islo-system".into()).spawn(move||{
         let mut current=Observation{system:initial,input,fullscreen:None};
         let mut delivered=None;
         let mut sampled=crate::poll_clock::PollClock::default();
@@ -348,7 +348,7 @@ pub fn connect(ctx:eframe::egui::Context,qq_only:bool) -> Result<Notifications> 
     let request = listener.RequestAccessAsync()?;
     let (tx, rx) = mpsc::sync_channel(32);
     let (stop, stopped)=mpsc::channel();
-    std::thread::Builder::new().name("floatisle-notifications".into()).spawn(move || {
+    std::thread::Builder::new().name("islo-notifications".into()).spawn(move || {
         let send=|event|{
             let result=tx.send(event);
             if result.is_ok(){ctx.request_repaint();}
@@ -575,7 +575,7 @@ mod tests {
             use windows::Win32::System::Ole::{OleInitialize, OleUninitialize, CF_HDROP};
             let initialized = OleInitialize(None).is_ok();
             let path =
-                std::env::temp_dir().join(format!("floatisle-drag-test-{}.txt", std::process::id()));
+                std::env::temp_dir().join(format!("islo-drag-test-{}.txt", std::process::id()));
             std::fs::write(&path, "test").unwrap();
             {
                 let data = file_data_object(&path).unwrap();

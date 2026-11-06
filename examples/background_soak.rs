@@ -2,10 +2,10 @@
 #[cfg(windows)]
 fn main(){
     let ctx=eframe::egui::Context::default();
-    let observations=floatisle::system::observe(ctx.clone(),Default::default(),None);
-    let bluetooth=floatisle::bt::spawn();
-    let media=floatisle::smtc::shared();
-    let _enabled=floatisle::smtc::spawn_poller(media.clone(),ctx);
+    let observations=islo::system::observe(ctx.clone(),Default::default(),None);
+    let bluetooth=islo::bt::spawn();
+    let media=islo::smtc::shared();
+    let _enabled=islo::smtc::spawn_poller(media.clone(),ctx);
     let start=std::time::Instant::now();let mut samples=0;
     while start.elapsed().as_secs()<360 {
         while observations.try_recv().is_ok(){samples+=1;}

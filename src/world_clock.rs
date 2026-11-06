@@ -307,8 +307,8 @@ impl App {
         let locale=self.settings.locale();
         if !self.world_clock.window_open{return;}
         let focus=std::mem::take(&mut self.world_clock.window_focus);
-        ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("floatisle-world-clock"),
-            egui::ViewportBuilder::default().with_title(locale.text("世界时钟 · FloatIsle")).with_icon(theme::app_icon()).with_inner_size([460.0,800.0]).with_min_inner_size([420.0,600.0]).with_visible(false).with_active(false),|ctx,_|{
+        ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("islo-world-clock"),
+            egui::ViewportBuilder::default().with_title(locale.text("世界时钟 · islo")).with_icon(theme::app_icon()).with_inner_size([460.0,800.0]).with_min_inner_size([420.0,600.0]).with_visible(false).with_active(false),|ctx,_|{
             ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(egui::SystemTheme::Dark));
             if focus{ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));ctx.send_viewport_cmd(egui::ViewportCommand::Focus);}
             if ctx.input(|i|i.viewport().close_requested() || i.key_pressed(egui::Key::Escape)){self.world_clock.window_open=false;}

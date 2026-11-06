@@ -128,7 +128,7 @@ mod tests{
     use super::*;
     #[test]
     fn known_duration_cache_precedes_newer_unknown_duration(){
-        let dir=std::env::temp_dir().join(format!("floatisle-krc-duration-rank-{}",std::process::id()));fs::create_dir_all(&dir).unwrap();
+        let dir=std::env::temp_dir().join(format!("islo-krc-duration-rank-{}",std::process::id()));fs::create_dir_all(&dir).unwrap();
         let known=dir.join("Artist - Track-0123456789abcdef0123456789abcdef.krc");
         let unknown=dir.join("Artist - Track-1123456789abcdef0123456789abcdef.krc");
         fs::write(&known,fixture("[ti:Track]\n[ar:Artist]\n[total:120000]\n[1000,500]已核对时长")).unwrap();
@@ -141,7 +141,7 @@ mod tests{
     }
     #[test]
     fn cached_duet_identity_ignores_order_and_credit_field(){
-        let dir=std::env::temp_dir().join(format!("floatisle-krc-featured-identity-{}",std::process::id()));fs::create_dir_all(&dir).unwrap();
+        let dir=std::env::temp_dir().join(format!("islo-krc-featured-identity-{}",std::process::id()));fs::create_dir_all(&dir).unwrap();
         let path=dir.join("Guest、Artist - Track-0123456789abcdef0123456789abcdef.krc");
         fs::write(&path,fixture("[ti:Track]\n[ar:Artist、Guest]\n[total:120000]\n[1000,500]第一句")).unwrap();
         for (title,artist) in [("Track","Artist/Guest"),("Track feat. Guest","Artist"),("Track","Artist featuring Guest")] {
@@ -168,7 +168,7 @@ mod tests{
     }
     #[test]
     fn alias_header_requires_exact_filename_and_opening_credit(){
-        let dir=std::env::temp_dir().join(format!("floatisle-krc-alias-{}",std::process::id()));fs::create_dir_all(&dir).unwrap();
+        let dir=std::env::temp_dir().join(format!("islo-krc-alias-{}",std::process::id()));fs::create_dir_all(&dir).unwrap();
         let path=dir.join("歌手 - 测试歌 (副标题)-0123456789abcdef0123456789abcdef.krc");
         let raw="[ti:测试歌 (女生版)]\n[ar:歌手]\n[total:232000]\n[0,70]<0,35,0>测试歌 (副标题)<35,35,0> - 歌手\n[4000,2000]<0,2000,0>第一句";
         fs::write(&path,fixture(raw)).unwrap();
@@ -194,7 +194,7 @@ mod tests{
     }
     #[test]
     fn hexadecimal_cache_suffix_is_not_part_of_the_song_title(){
-        let dir=std::env::temp_dir().join(format!("floatisle-krc-hex-{}",std::process::id()));fs::create_dir_all(&dir).unwrap();
+        let dir=std::env::temp_dir().join(format!("islo-krc-hex-{}",std::process::id()));fs::create_dir_all(&dir).unwrap();
         let path=dir.join("庄心妍 - 以后的以后-09832f40c5944aa9d3d06853213b59be-192001361-000002DA.krc");
         fs::write(&path,fixture("[ti:以后的以后]\n[ar:庄心妍]\n[1000,2000]第一句")).unwrap();
         let result=read_directory(&dir,"以后的以后","庄心妍",0.0);
@@ -221,7 +221,7 @@ mod tests{
         let mut bytes=vec![0xff,0xfe];bytes.extend(ini.encode_utf16().flat_map(u16::to_le_bytes));
         assert_eq!(directory_from_ini(&bytes),Some(PathBuf::from("D:\\音乐\\歌词\\")));
         assert_eq!(directory_from_ini(ini.as_bytes()),directory_from_ini(&bytes));
-        let dir=std::env::temp_dir().join(format!("floatisle-krc-{}",std::process::id()));fs::create_dir_all(&dir).unwrap();
+        let dir=std::env::temp_dir().join(format!("islo-krc-{}",std::process::id()));fs::create_dir_all(&dir).unwrap();
         let good=dir.join("歌手 - 测试歌-0123456789abcdef0123456789abcdef-1-00000000.krc");let wrong=dir.join("歌手 - 测试歌 (Live)-0123456789abcdef0123456789abcdef-2-00000000.krc");
         fs::write(&good,fixture("[ti:测试歌]\n[ar:歌手]\n[22991,2000]<0,2000,0>第一句")).unwrap();
         fs::write(&wrong,fixture("[ti:测试歌 (Live)]\n[ar:歌手]\n[23930,2000]<0,2000,0>第一句")).unwrap();
@@ -232,7 +232,7 @@ mod tests{
 
     #[test]
     fn duet_cache_accepts_primary_artist_only_when_filename_matches_full_track() {
-        let dir=std::env::temp_dir().join(format!("floatisle-krc-duet-{}",std::process::id()));fs::create_dir_all(&dir).unwrap();
+        let dir=std::env::temp_dir().join(format!("islo-krc-duet-{}",std::process::id()));fs::create_dir_all(&dir).unwrap();
         let path=dir.join("歌手甲、歌手乙 - 合唱曲-0123456789abcdef0123456789abcdef.krc");
         fs::write(&path,fixture("[ti:合唱曲]\n[ar:歌手甲]\n[1000,2000]第一句")).unwrap();
         assert!(read_directory(&dir,"合唱曲","歌手甲、歌手乙",0.0).is_some(),"合唱歌词的头部可能只记录主歌手");
@@ -243,7 +243,7 @@ mod tests{
 
     #[test]
     fn empty_headers_use_exact_filename_without_accepting_other_versions() {
-        let dir=std::env::temp_dir().join(format!("floatisle-krc-empty-{}",std::process::id()));fs::create_dir_all(&dir).unwrap();
+        let dir=std::env::temp_dir().join(format!("islo-krc-empty-{}",std::process::id()));fs::create_dir_all(&dir).unwrap();
         let path=dir.join("歌手 - 测试歌-0123456789abcdef0123456789abcdef-123-00000000.krc");
         fs::write(&path,fixture("[ti:]\n[ar:]\n[total:0]\n[1000,2000]第一句")).unwrap();
         assert!(read_directory(&dir,"测试歌","歌手",0.0).is_some());

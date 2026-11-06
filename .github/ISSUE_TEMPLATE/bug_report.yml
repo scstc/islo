@@ -5,7 +5,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: FloatIsle版本
+      label: islo版本
       placeholder: v0.6.39
     validations:
       required: true
