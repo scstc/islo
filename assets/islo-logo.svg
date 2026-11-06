@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>islo — an i on a floating island</title>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="#142F38"/>
+  <path d="M112 292C112 326 160 340 205 350L243 393Q256 407 269 393L307 350C352 340 400 326 400 292Z" fill="#36A58F"/>
+  <ellipse cx="256" cy="292" rx="144" ry="40" fill="#71E4C8"/>
+  <rect x="228" y="190" width="56" height="100" rx="28" fill="#F5FAF6"/>
+  <circle cx="256" cy="131" r="30" fill="#F5FAF6"/>
+</svg>

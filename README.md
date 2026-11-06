@@ -87,7 +87,7 @@ islo贴在屏幕顶部，收起时是一条小刘海。鼠标靠近时展开，�
 2. 双击安装器，可修改安装位置、选择是否创建桌面快捷方式和开机自启，再点击「一键安装」。桌面快捷方式默认勾选，首次安装默认不开机自启；无需解压。
 3. 安装完成后打开「islo」，也可从桌面快捷方式启动。在托盘菜单打开设置，选择需要的功能。
 
-需要免安装使用时，下载 `islo-v0.6.60-windows-x64.zip` 并完整解压，运行其中的 `islo.exe`。程序仍默认使用当前用户的应用数据目录。
+需要免安装使用时，下载 `islo-v26.4.1-windows-x64.zip` 并完整解压，运行其中的 `islo.exe`。程序仍默认使用当前用户的应用数据目录。
 
 在「设置 → 关于」点击「检查更新」，可查看最新正式版及更新说明，选择「下载并安装」「浏览器下载」或「稍后」。应用内下载通过校验后会重启更新；也可在发布页下载后再次安装，原设置和记录会保留。卸载可通过 Windows「已安装的应用」完成；卸载同样保留用户数据。详细操作见 [使用指南](docs/USAGE.md)。
 
@@ -107,7 +107,7 @@ QQ 收信、邮件日程和飞书个人日历已进行真实账号测试；钉�
 
 ## 数据留在什么地方
 
-- 设置、待办、饮水记录、置物路径和连接元数据保存在 `%APPDATA%\Daozai`。
+- 设置、待办、饮水记录、置物路径和连接元数据保存在 `%APPDATA%\islo`。
 - 邮箱和日历密码保存在 Windows 凭据管理器；Gemini 会话使用 Windows DPAPI 加密。
 - 读取已有 AI 客户端登录时不回写原客户端配置；不要把授权码、Cookie 或登录 JSON 上传到 Issue。
 - 邮箱读取收件箱，不读取垃圾邮件文件夹；邮件正文在当前进程中用于展示和识别。
@@ -121,7 +121,7 @@ QQ 收信、邮件日程和飞书个人日历已进行真实账号测试；钉�
 
 ```powershell
 rustup default stable-x86_64-pc-windows-msvc
-cargo build --locked --release --bin daozai
+cargo build --locked --release --bin islo
 .\target\release\islo.exe
 ```
 
@@ -133,6 +133,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package.ps1
 ```
 
 测试按单线程运行，以隔离使用进程环境变量的数据目录测试。低内存设备可设置 `$env:CARGO_BUILD_JOBS = "1"`。打包需要 NSIS 3，可通过 `-NsisCompiler` 指定 `makensis.exe`。发布脚本会检查程序版本和运行库依赖，生成单文件 EXE 安装器、精简免安装 ZIP 和 SHA-256 校验文件。
+
+品牌图标源文件为 `assets/islo-logo.svg`。修改后运行 `cargo run --locked --example generate_brand_icons`，会同步生成 PNG 和 16–256 像素的 Windows ICO。
 
 项目结构、界面预览与贡献方式见 [开发指南](CONTRIBUTING.md)。
 

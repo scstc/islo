@@ -14,7 +14,7 @@ cargo test --locked --all-targets --features record -- --test-threads=1
 为开发实例指定独立目录，避免覆盖日常使用数据：
 
 ```powershell
-$env:ISLO_DATA_DIR = Join-Path $env:TEMP 'daozai-development'
+$env:ISLO_DATA_DIR = Join-Path $env:TEMP 'islo-development'
 cargo run --locked --bin islo
 ```
 
