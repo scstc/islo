@@ -15,6 +15,10 @@ path = "src/lib.rs"
 name = "islo"
 path = "src/main.rs"
 
+[[bin]]
+name = "islo-cli"
+path = "cli/src/main.rs"
+
 # 无窗口演示录制器：脚本驱动 + 软件光栅化，输出 RGBA 帧流给 ffmpeg。
 [[bin]]
 name = "islo-record"

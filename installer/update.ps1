@@ -8,6 +8,12 @@ $target = [IO.Path]::GetFullPath($TargetExe)
 $targetDir = Split-Path $target -Parent
 $staged = Join-Path $targetDir ('islo-update-' + [Guid]::NewGuid().ToString('N') + '.exe')
 $backup = Join-Path $workRoot 'previous.exe'
+$cliTarget = Join-Path $targetDir 'islo-cli.exe'
+$cliStaged = Join-Path $targetDir ('islo-cli-update-' + [Guid]::NewGuid().ToString('N') + '.exe')
+$cliBackup = Join-Path $workRoot 'previous-cli.exe'
+$hasCli = $false
+$cliExisted = $false
+$cliReplaced = $false
 $replaced = $false
 $exited = $false
 function Assert-PlainPath([string]$PathToCheck) {
@@ -34,9 +40,20 @@ try {
         $entries = @($zip.Entries | Where-Object {$_.FullName.Replace('\','/') -ceq $name})
         if ($entries.Count -ne 1 -or $entries[0].Length -gt 200MB) { throw '更新包中缺少唯一的islo程序。' }
         [IO.Compression.ZipFileExtensions]::ExtractToFile($entries[0], $staged)
+        $cliName = 'islo-v' + $version + '-windows-x64/islo-cli.exe'
+        $cliEntries = @($zip.Entries | Where-Object {$_.FullName.Replace('\','/') -ceq $cliName})
+        if ($cliEntries.Count -gt 1 -or ($cliEntries.Count -eq 1 -and $cliEntries[0].Length -gt 200MB)) { throw '更新包中的 CLI 无效。' }
+        $hasCli = $cliEntries.Count -eq 1
+        if ($hasCli) { [IO.Compression.ZipFileExtensions]::ExtractToFile($cliEntries[0], $cliStaged) }
+        elseif (Test-Path -LiteralPath $cliTarget) { throw '更新包缺少已有的 CLI，不能只更新桌面程序。' }
     } finally { $zip.Dispose() }
     $actual = [Diagnostics.FileVersionInfo]::GetVersionInfo($staged).FileVersion
     if ($actual -ne $version -and $actual -ne "$version.0") { throw '安装包版本不匹配。' }
+    if ($hasCli) {
+        $cliActual = [Diagnostics.FileVersionInfo]::GetVersionInfo($cliStaged).FileVersion
+        if ($cliActual -ne $version -and $cliActual -ne "$version.0") { throw 'CLI 版本不匹配。' }
+        Assert-PlainPath $cliTarget
+    }
     Set-Content -LiteralPath (Join-Path $workRoot 'ready') -Value 'ok'
     if ($ParentProcessId -gt 0) {
         $parent = Get-Process -Id $ParentProcessId -ErrorAction SilentlyContinue
@@ -47,6 +64,14 @@ try {
     [IO.File]::Copy($target, $backup, $true)
     [IO.File]::Replace($staged, $target, [NullString]::Value)
     $replaced = $true
+    if ($hasCli) {
+        $cliExisted = Test-Path -LiteralPath $cliTarget
+        if ($cliExisted) {
+            [IO.File]::Copy($cliTarget, $cliBackup, $true)
+            [IO.File]::Replace($cliStaged, $cliTarget, [NullString]::Value)
+        } else { [IO.File]::Move($cliStaged, $cliTarget) }
+        $cliReplaced = $true
+    }
     Start-Process -FilePath $target -WorkingDirectory $targetDir -WindowStyle Hidden
     $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\islo'
     $registered = Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue
@@ -60,7 +85,12 @@ try {
 } catch {
     $message = $_.Exception.Message
     if ($replaced -and (Test-Path -LiteralPath $backup)) { [IO.File]::Copy($backup, $target, $true) }
+    if ($cliReplaced) {
+        if ($cliExisted) { [IO.File]::Copy($cliBackup, $cliTarget, $true) }
+        elseif (Test-Path -LiteralPath $cliTarget) { Remove-Item -LiteralPath $cliTarget -Force }
+    }
     if (Test-Path -LiteralPath $staged) { Remove-Item -LiteralPath $staged -Force }
+    if (Test-Path -LiteralPath $cliStaged) { Remove-Item -LiteralPath $cliStaged -Force }
     if (-not $exited) {
         if ($workRoot.StartsWith($cacheRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
             [IO.File]::WriteAllText((Join-Path $workRoot 'error.txt'), $message)

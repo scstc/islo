@@ -6,6 +6,30 @@ use std::sync::Mutex;
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
+fn agent_settings_use_live_state_and_invalid_batches_do_not_change_it() {
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();
+    let root=crate::model::config_dir();let commands=root.join("agent-control");std::fs::create_dir_all(&commands).unwrap();
+    h.app.settings.focus_minutes=40;
+    let request=commands.join(format!("req-{:048x}.json",1));
+    std::fs::write(&request,br#"{"patch":{"language":"en","pet_expression":"laughing"}}"#).unwrap();
+    crate::agent_control::serve(&mut h.app).unwrap();
+    assert_eq!(h.app.settings.focus_minutes,40,"CLI 必须在实时状态上修改，不能用旧配置覆盖界面中的其他变更");
+    assert!(h.app.settings.locale().is_english());assert_eq!(h.app.pet_state(),crate::pet::PetState::Laughing);
+    assert_eq!(crate::model::Settings::load().focus_minutes,40);
+    let reply:crate::agent_control::Reply=serde_json::from_slice(&std::fs::read(commands.join(format!("res-{:048x}.json",1))).unwrap()).unwrap();
+    assert!(reply.ok);assert_eq!(reply.backend,"running-app");
+    let before=std::fs::read(root.join("settings.txt")).unwrap();
+    std::fs::write(commands.join(format!("req-{:048x}.json",2)),br#"{"patch":{"language":"zh-CN","focus_minutes":"9999"}}"#).unwrap();
+    crate::agent_control::serve(&mut h.app).unwrap();
+    assert_eq!(std::fs::read(root.join("settings.txt")).unwrap(),before);assert!(h.app.settings.locale().is_english());
+    h.app.settings.sound=true;
+    std::fs::write(commands.join(format!("req-{:048x}.json",3)),br#"{"patch":null}"#).unwrap();
+    crate::agent_control::serve(&mut h.app).unwrap();
+    let reply:crate::agent_control::Reply=serde_json::from_slice(&std::fs::read(commands.join(format!("res-{:048x}.json",3))).unwrap()).unwrap();
+    assert_eq!(reply.settings.unwrap().get("sound").map(String::as_str),Some("1"),"查询必须返回正在运行的状态");
+}
+
+#[test]
 fn fixed_expression_selection_persists_and_overrides_automatic_states() {
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
     use crate::{i18n::Language,pet::PetState};

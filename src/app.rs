@@ -1387,6 +1387,15 @@ impl App {
     pub fn set_pet(&mut self,enabled:bool) {
         self.settings.pet=enabled;if enabled {self.settings.minimal=false;}self.settings.save();
     }
+    pub(crate) fn apply_agent_settings(&mut self,settings:model::Settings) {
+        if self.settings.pet_expression!=settings.pet_expression || self.settings.pet!=settings.pet || self.settings.minimal!=settings.minimal {
+            self.pet.reaction=None;self.pet.waking_until=0.0;
+        }
+        self.settings=settings;
+        if !self.settings.visible_pages[self.page] {
+            if let Some(first)=self.settings.page_order.iter().copied().find(|page|self.settings.visible_pages[*page]) {self.go(first,1.0);}
+        }
+    }
     pub fn set_minimal(&mut self,enabled:bool) {
         self.settings.minimal=enabled;if enabled {self.settings.pet=false;}self.settings.save();
     }

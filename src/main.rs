@@ -180,6 +180,7 @@ impl Shell {
         let events = self.tray.as_ref().map(|t| t.poll()).unwrap_or_default();
         for e in events {
             match e {
+                Event::AgentSettings=>{if let Err(error)=islo::agent_control::serve(&mut self.app) {self.app.say(&format!("Agent settings: {error}"));}},
                 Event::OpenSettings=>self.app.open_settings(),
                 Event::OpenCalendar=>self.app.open_calendar(None),
                 Event::TogglePet => {

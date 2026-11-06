@@ -1,4 +1,4 @@
-param([switch]$SkipBuild, [string]$Executable, [string]$NsisCompiler, [string]$OutputDirectory, [string]$Toolchain = 'stable-x86_64-pc-windows-msvc')
+param([switch]$SkipBuild, [string]$Executable, [string]$CliExecutable, [string]$NsisCompiler, [string]$OutputDirectory, [string]$Toolchain = 'stable-x86_64-pc-windows-msvc')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 Push-Location $projectRoot
@@ -7,7 +7,7 @@ try {
     if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw 'VERSION must contain four numeric components' }
     if (-not $SkipBuild) {
         $env:CARGO_BUILD_JOBS = '1'
-        cargo "+$Toolchain" build --locked --release --bin islo --target x86_64-pc-windows-msvc
+        cargo "+$Toolchain" build --locked --release --bin islo --bin islo-cli --target x86_64-pc-windows-msvc
         if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
     }
     if (-not $Executable) {
@@ -15,8 +15,12 @@ try {
         $Executable = Join-Path $targetDirectory 'x86_64-pc-windows-msvc\release\islo.exe'
     }
     $binary = Get-Item -LiteralPath $Executable
+    if (-not $CliExecutable) { $CliExecutable = Join-Path $binary.DirectoryName 'islo-cli.exe' }
+    $cliBinary = Get-Item -LiteralPath $CliExecutable
     & (Join-Path $PSScriptRoot 'check-runtime.ps1') -Executable $binary.FullName
+    & (Join-Path $PSScriptRoot 'check-runtime.ps1') -Executable $cliBinary.FullName
     if ($binary.VersionInfo.FileVersion -ne $version -and $binary.VersionInfo.FileVersion -ne "$version.0") { throw 'Executable version mismatch' }
+    if ($cliBinary.VersionInfo.FileVersion -ne $version) { throw 'CLI version mismatch' }
     if (-not $NsisCompiler) {
         $compiler = Get-Command makensis.exe -ErrorAction SilentlyContinue
         if ($compiler) { $NsisCompiler = $compiler.Source }
@@ -31,12 +35,13 @@ try {
     if (Test-Path -LiteralPath $stagingDirectory) { throw 'Package directory already exists' }
     New-Item -ItemType Directory -Path $stagingDirectory -Force | Out-Null
     Copy-Item -LiteralPath $binary.FullName -Destination (Join-Path $stagingDirectory 'islo.exe')
+    Copy-Item -LiteralPath $cliBinary.FullName -Destination (Join-Path $stagingDirectory 'islo-cli.exe')
     # ZIP 保留给免安装使用和应用内更新；普通用户只需下载安装 EXE。
     @('LICENSE','LICENSES.md','THIRD_PARTY_NOTICES.txt') | ForEach-Object {
         Copy-Item -LiteralPath (Join-Path $projectRoot $_) -Destination $stagingDirectory -Recurse
     }
     $setup = Join-Path $outputDirectory "islo-Setup-v$version-x64.exe"
-    & $NsisCompiler /V2 /WX "/DAPP_VERSION=$version" "/DAPP_FILE_VERSION=$version" "/DPROJECT_DIR=$projectRoot" "/DSOURCE_EXE=$($binary.FullName)" "/DOUTPUT_FILE=$setup" (Join-Path $projectRoot 'installer\setup.nsi')
+    & $NsisCompiler /V2 /WX "/DAPP_VERSION=$version" "/DAPP_FILE_VERSION=$version" "/DPROJECT_DIR=$projectRoot" "/DSOURCE_EXE=$($binary.FullName)" "/DSOURCE_CLI=$($cliBinary.FullName)" "/DOUTPUT_FILE=$setup" (Join-Path $projectRoot 'installer\setup.nsi')
     if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
     $archive = Join-Path $outputDirectory "$packageName.zip"
     Compress-Archive -LiteralPath $stagingDirectory -DestinationPath $archive

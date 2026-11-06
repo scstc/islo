@@ -25,12 +25,14 @@ pub fn config_dir() -> PathBuf {
 }
 
 fn read_kv(path: &Path) -> Vec<(String, String)> {
+    fs::read_to_string(path).map(|text|parse_kv(&text)).unwrap_or_default()
+}
+
+fn parse_kv(text:&str)->Vec<(String,String)> {
     let mut out = Vec::new();
-    if let Ok(text) = fs::read_to_string(path) {
-        for line in text.trim_start_matches('\u{feff}').lines() {
-            if let Some((k, v)) = line.split_once('=') {
-                out.push((k.trim().to_string(), v.trim().to_string()));
-            }
+    for line in text.trim_start_matches('\u{feff}').lines() {
+        if let Some((k, v)) = line.split_once('=') {
+            out.push((k.trim().to_string(), v.trim().to_string()));
         }
     }
     out
@@ -278,8 +280,18 @@ impl Settings {
     }
 
     pub fn load() -> Self {
+        Self::load_from(&config_dir().join("settings.txt"))
+    }
+
+    pub fn load_from(path:&Path)->Self {
+        Self::from_pairs(read_kv(path))
+    }
+
+    pub fn parse(text:&str)->Self {Self::from_pairs(parse_kv(text))}
+
+    fn from_pairs(pairs:impl IntoIterator<Item=(String,String)>)->Self {
         let mut s = Self::default();
-        for (k, v) in read_kv(&config_dir().join("settings.txt")) {
+        for (k, v) in pairs {
             match k.as_str() {
                 "settings_theme" => s.settings_theme=crate::settings_theme::SettingsTheme::parse(&v),
                 "language" => s.language=crate::i18n::Language::parse(&v),
@@ -360,9 +372,16 @@ impl Settings {
     }
 
     pub fn save(&self) {
-        let _ = write_kv(
-            &config_dir().join("settings.txt"),
-            &[
+        let _=self.save_to(&config_dir().join("settings.txt"));
+    }
+
+    pub fn save_to(&self,path:&Path)->std::io::Result<()> {
+        write_kv(path,&self.entries())
+    }
+
+    /// Stable keys and canonical values shared by the UI, CLI and agent interface.
+    pub fn entries(&self)->Vec<(String,String)> {
+        vec![
                 ("display_id".into(),self.display_id.clone()),
                 ("skin".into(),self.skin.key().into()),
                 ("island_shape".into(),self.island_shape.key().into()),
@@ -413,8 +432,32 @@ impl Settings {
                 ("calendar_prompt".into(), (self.calendar_prompt as u8).to_string()),
                 ("calendar_auto_sync".into(), (self.calendar_auto_sync as u8).to_string()),
                 ("clipboard_history".into(), (self.clipboard_history as u8).to_string()),
-            ],
-        );
+        ]
+    }
+
+    pub fn patched(&self,patch:&std::collections::BTreeMap<String,String>)->Result<Self,String> {
+        let mut values:std::collections::BTreeMap<_,_>=self.entries().into_iter().collect();
+        let mut canonical=std::collections::BTreeMap::new();
+        for (key,value) in patch {
+            if !values.contains_key(key) {return Err(format!("Unknown setting: {key}"));}
+            if value.contains(['\r','\n','\0']) {return Err(format!("Setting {key} cannot contain line breaks or NUL"));}
+            let value=value.trim();
+            let value=match serde_json::from_str::<serde_json::Value>(value) {
+                Ok(v @ (serde_json::Value::Array(_)|serde_json::Value::Object(_)))=>v.to_string(),
+                _=>value.to_owned(),
+            };
+            values.insert(key.clone(),value.clone());canonical.insert(key.clone(),value);
+        }
+        if canonical.get("pet").is_some_and(|v|v=="1") {
+            if canonical.get("minimal").is_some_and(|v|v=="1") {return Err("pet=1 and minimal=1 cannot be enabled together".into());}
+            values.insert("minimal".into(),"0".into());
+        } else if canonical.get("minimal").is_some_and(|v|v=="1") {values.insert("pet".into(),"0".into());}
+        let next=Self::from_pairs(values);
+        let normalized:std::collections::BTreeMap<_,_>=next.entries().into_iter().collect();
+        for (key,value) in canonical {
+            if normalized.get(&key)!=Some(&value) {return Err(format!("Invalid value for {key}; application normalized it to {}",normalized[&key]));}
+        }
+        Ok(next)
     }
 }
 

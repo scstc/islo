@@ -1,0 +1,4 @@
+interface:
+  display_name: "islo settings"
+  short_description: "Read and update islo preferences through its local CLI"
+  default_prompt: "Use $islo-control to inspect and update my islo settings."

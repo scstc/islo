@@ -6,6 +6,10 @@ if(-not $SourceExecutable){
 $ErrorActionPreference='Stop'
 $sourcePath=[System.IO.Path]::GetFullPath($SourceExecutable)
 if(-not(Test-Path -LiteralPath $sourcePath)){throw '找不到islo程序，请先完成构建。'}
+$cliSource=Join-Path (Split-Path $sourcePath -Parent) 'islo-cli.exe'
+if(Test-Path -LiteralPath $cliSource){
+    if((Get-Item -LiteralPath $cliSource).VersionInfo.FileVersion -ne (Get-Item -LiteralPath $sourcePath).VersionInfo.FileVersion){throw '桌面程序与CLI版本不一致。'}
+}
 $installDir=Join-Path $env:LOCALAPPDATA 'Programs\islo'
 $exePath=Join-Path $installDir 'islo.exe'
 New-Item -ItemType Directory -Path $installDir -Force | Out-Null
@@ -15,6 +19,7 @@ Get-Process islo -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq $exeP
 }
 if(Test-Path -LiteralPath $exePath){Copy-Item -LiteralPath $exePath -Destination (Join-Path $installDir 'islo-previous.exe') -Force}
 Copy-Item -LiteralPath $sourcePath -Destination $exePath -Force
+if(Test-Path -LiteralPath $cliSource){Copy-Item -LiteralPath $cliSource -Destination (Join-Path $installDir 'islo-cli.exe') -Force}
 if(Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\THIRD_PARTY_NOTICES.txt')){Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\THIRD_PARTY_NOTICES.txt') -Destination (Join-Path $installDir 'THIRD_PARTY_NOTICES.txt') -Force}
 if(Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\LICENSE')){Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\LICENSE') -Destination (Join-Path $installDir 'LICENSE') -Force}
 if(Test-Path -LiteralPath (Join-Path $PSScriptRoot '..\LICENSES.md')){Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\LICENSES.md') -Destination (Join-Path $installDir 'LICENSES.md') -Force}

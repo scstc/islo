@@ -10,6 +10,23 @@ islo 是基于 [岛仔（Daozai）](https://github.com/Renly1994/xiaotang-daozai
 - 更新来源为 `scstc/islo`，不使用上游原版更新包。
 - 吉祥物提供 20 种表情。在「设置 → 常规 → 表情模式」选择「固定」，再选「固定表情」，即可持续显示并在重启后保留；「自动」模式随活动变化，也支持短时表情预览。嘴型与状态映射适配自 [Aora Bot](https://github.com/sam70361/aora-bot)，适用其专用许可；详细授权见 [LICENSES.md](LICENSES.md)。
 - 眼睛随鼠标转动的范围和形态变化更明显；固定大笑、开心和听音乐等表情也会跟随鼠标，睡眠仍保持闭眼姿态。
+- 新增 `islo-cli` 和 [islo-control skill](skills/islo-control/SKILL.md)，agents 可查询、修改和批量应用现有持久化设置。命令与界面共享校验，运行中由应用处理并保存。详见 [CLI 用法](cli/README.md)。
+
+## 项目结构
+
+桌面端和 CLI 是同一个 Cargo 项目的两个入口，共用一套设置模型；skills 提供 agent 调用说明。
+
+```text
+src/main.rs             桌面入口
+src/model.rs            共享配置和业务模型
+src/agent_control.rs    设置命令与运行中应用通信
+cli/src/main.rs         命令行入口
+cli/README.md           命令文档
+skills/islo-control/    agent 操作指引
+installer/             Windows 安装与更新
+scripts/               构建和打包
+tests/                 集成与安装测试
+```
 
 ![islo 表情预览](docs/images/islo-expressions.gif)
 
@@ -123,7 +140,7 @@ QQ 收信、邮件日程和飞书个人日历已进行真实账号测试；钉�
 
 ```powershell
 rustup default stable-x86_64-pc-windows-msvc
-cargo build --locked --release --bin islo
+cargo build --locked --release --bin islo --bin islo-cli
 .\target\release\islo.exe
 ```
 

@@ -10,7 +10,7 @@ $data = Join-Path $env:APPDATA $id
 New-Item -ItemType Directory -Path $root -Force | Out-Null
 $sentinel = Join-Path $data 'settings.txt'
 $source = Join-Path $root 'fixture.cs'
-'class Fixture { static void Main() { } }' | Set-Content -LiteralPath $source
+'[assembly:System.Reflection.AssemblyTitle("islo installer test")][assembly:System.Reflection.AssemblyProduct("islo installer test")][assembly:System.Reflection.AssemblyCompany("islo")] class Fixture { static void Main() { } }' | Set-Content -LiteralPath $source
 $fixture = Join-Path $root 'fixture.exe'
 & (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe') /nologo /target:winexe "/out:$fixture" $source
 if ($LASTEXITCODE -ne 0) { throw '测试程序编译失败' }
@@ -33,6 +33,7 @@ function Assert-Installed {
     if ($entry.InstallLocation -ne $installed -or $entry.DisplayVersion -ne $FixtureVersion) { throw '安装注册信息不正确' }
     if ($entry.UninstallString -ne ('"' + (Join-Path $installed 'Uninstall.exe') + '"')) { throw '卸载命令不正确' }
     if ((Get-FileHash (Join-Path $installed 'islo.exe')).Hash -ne (Get-FileHash $fixture).Hash) { throw '程序复制不正确' }
+    if ((Get-FileHash (Join-Path $installed 'islo-cli.exe')).Hash -ne (Get-FileHash $fixture).Hash) { throw 'CLI 未安装' }
     $shell = New-Object -ComObject WScript.Shell
     $desktopLink = Join-Path $shell.SpecialFolders.Item('Desktop') "$name.lnk"
     if ((Test-Path -LiteralPath $desktopLink) -ne $Desktop) { throw '桌面快捷方式选项未生效' }
@@ -86,7 +87,7 @@ try {
     # 使用原安装路径运行原生卸载器，只操作本测试的独立产品标识。
     $process = Start-Process -FilePath (Join-Path $installed 'Uninstall.exe') -ArgumentList @('/S',"_?=$installed") -WindowStyle Hidden -PassThru
     if (-not $process.WaitForExit(30000) -or $process.ExitCode -ne 0) { throw '卸载失败或超时' }
-    if ((Test-Path -LiteralPath $key) -or (Test-Path -LiteralPath (Join-Path $installed 'islo.exe'))) { throw '卸载残留程序或注册信息' }
+    if ((Test-Path -LiteralPath $key) -or (Test-Path -LiteralPath (Join-Path $installed 'islo.exe')) -or (Test-Path -LiteralPath (Join-Path $installed 'islo-cli.exe'))) { throw '卸载残留程序或注册信息' }
     if ((Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).$id) { throw '卸载残留自启项' }
     if (-not (Test-Path -LiteralPath (Join-Path $installed 'user-file.txt'))) { throw '卸载误删额外文件' }
     if ((Get-Content -LiteralPath $sentinel -Raw).Trim() -ne 'keep-user-data') { throw '卸载误删用户数据' }

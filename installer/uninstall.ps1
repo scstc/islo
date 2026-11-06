@@ -11,7 +11,7 @@ foreach($path in $links){if((Test-Path -LiteralPath $path) -and $shell.CreateSho
 $runKey='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 Remove-ItemProperty -Path $runKey -Name islo -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\islo' -ErrorAction SilentlyContinue
-foreach($name in @('islo.exe','islo-previous.exe','islo-v0.2-backup.exe','THIRD_PARTY_NOTICES.txt','LICENSE','LICENSES.md','uninstall.ps1')){
+foreach($name in @('islo.exe','islo-cli.exe','islo-previous.exe','islo-v0.2-backup.exe','THIRD_PARTY_NOTICES.txt','LICENSE','LICENSES.md','uninstall.ps1')){
     $path=Join-Path $installDir $name;if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path}
 }
 if(-not(Get-ChildItem -LiteralPath $installDir -Force)){Remove-Item -LiteralPath $installDir}

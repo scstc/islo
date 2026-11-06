@@ -24,6 +24,8 @@ cargo run --locked --bin islo
 
 ## 代码导航
 
+桌面端与 CLI 共用根 `Cargo.toml` 的库，CLI 参数解析位于 `cli/src/main.rs`，共享命令位于 `src/agent_control.rs`，配置规则位于 `src/model.rs`。新增设置应先进入共享模型，再通过 CLI 暴露，避免重复实现。Agent 的操作指引位于 `skills/islo-control/SKILL.md`。
+
 | 目录／文件 | 内容 |
 | --- | --- |
 | `src/main.rs` | Windows 外壳、系统状态和后台服务衔接 |

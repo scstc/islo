@@ -12,6 +12,9 @@ Unicode true
 !ifndef APP_NAME
   !define APP_NAME "islo"
 !endif
+!ifndef SOURCE_CLI
+  !define SOURCE_CLI "${SOURCE_EXE}"
+!endif
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_ID}"
 Name "${APP_NAME}"
 OutFile "${OUTPUT_FILE}"
@@ -25,6 +28,7 @@ SetCompressor /SOLID lzma
 !endif
 VIProductVersion "${APP_FILE_VERSION}"
 VIAddVersionKey /LANG=2052 "ProductName" "${APP_NAME}"
+VIAddVersionKey /LANG=2052 "CompanyName" "islo"
 VIAddVersionKey /LANG=2052 "FileDescription" "${APP_NAME}安装程序"
 VIAddVersionKey /LANG=2052 "FileVersion" "${APP_VERSION}"
 VIAddVersionKey /LANG=2052 "LegalCopyright" "islo贡献者"
@@ -196,6 +200,7 @@ Section "安装"
   SetOutPath "$INSTDIR"
   SetOverwrite on
   File /oname=islo.exe "${SOURCE_EXE}"
+  File /oname=islo-cli.exe "${SOURCE_CLI}"
   File "${PROJECT_DIR}\LICENSE"
   File "${PROJECT_DIR}\LICENSES.md"
   File "${PROJECT_DIR}\THIRD_PARTY_NOTICES.txt"
@@ -232,6 +237,7 @@ FunctionEnd
 Section "Uninstall"
   Call un.CheckClosed
   Delete "$INSTDIR\islo.exe"
+  Delete "$INSTDIR\islo-cli.exe"
   Delete "$INSTDIR\islo-previous.exe"
   Delete "$INSTDIR\islo-v0.2-backup.exe"
   Delete "$INSTDIR\LICENSE"

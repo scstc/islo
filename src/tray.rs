@@ -80,6 +80,7 @@ impl Ctx {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
+    AgentSettings,
     TogglePet,
     OpenSettings,
     OpenCalendar,
@@ -323,6 +324,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     }
     if msg == WM_APP+4 {return LRESULT(ctx.tx.send(Event::OpenSettings).is_ok() as isize);}
     if msg == WM_APP+5 {return LRESULT(ctx.tx.send(Event::OpenCalendar).is_ok() as isize);}
+    if msg == WM_APP+6 {return LRESULT(ctx.tx.send(Event::AgentSettings).is_ok() as isize);}
     if msg == WM_TRAY_DUMP {
         if let Ok(menu) = popup_menu(ctx.state()) {
             dump_menu(hwnd, ctx, menu);
@@ -511,6 +513,19 @@ pub fn single_instance() -> bool {
         }
     }
 }
+
+pub fn instance_running()->bool {unsafe{
+    use windows::Win32::System::Threading::{OpenMutexW,SYNCHRONIZATION_ACCESS_RIGHTS};
+    match OpenMutexW(SYNCHRONIZATION_ACCESS_RIGHTS(0x00100000),false,MUTEX_NAME) {
+        Ok(handle)=>{let _=CloseHandle(handle);true},Err(_)=>false,
+    }
+}}
+
+pub fn notify_agent_settings()->bool {unsafe{
+    let Ok(hwnd)=FindWindowW(w!("isloTray"),PCWSTR::null()) else {return false};
+    let mut reply=0usize;
+    SendMessageTimeoutW(hwnd,WM_APP+6,WPARAM(0),LPARAM(0),SMTO_ABORTIFHUNG|SMTO_ERRORONEXIT,1500,Some(&mut reply)).0!=0 && reply==1
+}}
 
 fn run_key() -> Option<HKEY> {
     unsafe {
