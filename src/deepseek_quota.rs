@@ -14,8 +14,11 @@ impl Balance {
         format!("{}{}{grouped}.{decimal}",self.symbol(),if value<0.0{"-"}else{""})
     }
     pub fn compact(&self)->String{
+        self.compact_in(crate::i18n::Locale::ZhCn)
+    }
+    pub fn compact_in(&self,locale:crate::i18n::Locale)->String{
         let n=self.total;let magnitude=n.abs();
-        let (value,suffix)=if magnitude>=100_000_000.0{(n/100_000_000.0,"亿")}else if magnitude>=10_000.0{(n/10_000.0,"万")}else if magnitude>=1000.0{(n/1000.0,"k")}else{(n,"")};
+        let (value,suffix)=if locale.is_english(){if magnitude>=1_000_000_000.0{(n/1_000_000_000.0,"B")}else if magnitude>=1_000_000.0{(n/1_000_000.0,"M")}else if magnitude>=1000.0{(n/1000.0,"k")}else{(n,"")}}else if magnitude>=100_000_000.0{(n/100_000_000.0,"亿")}else if magnitude>=10_000.0{(n/10_000.0,"万")}else if magnitude>=1000.0{(n/1000.0,"k")}else{(n,"")};
         let digits=if suffix.is_empty(){if magnitude<100.0{1}else{0}}else if value.abs()<10.0{2}else{1};
         let factor=10f64.powi(digits);let text=format!("{:.*}",(digits as usize),(value*factor).trunc()/factor);
         let text=if text.contains('.') {text.trim_end_matches('0').trim_end_matches('.')}else{&text};

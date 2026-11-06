@@ -111,6 +111,7 @@ impl Shell {
             pet: app.settings.pet,
             minimal: app.settings.minimal,
             autostart,
+            locale: app.settings.locale(),
         });
         diagnostics::startup("初始化通知监听");
         #[cfg(windows)]
@@ -204,7 +205,7 @@ impl Shell {
             }
         }
         if let Some(t) = &self.tray {
-            t.sync(tray::State { pet: self.app.settings.pet, minimal: self.app.settings.minimal, autostart: self.autostart });
+            t.sync(tray::State { pet: self.app.settings.pet, minimal: self.app.settings.minimal, autostart: self.autostart, locale:self.app.settings.locale() });
         }
     }
 
@@ -524,7 +525,7 @@ impl eframe::App for Shell {
                     }
                 },
                 Cmd::CalendarImport=>{
-                    #[cfg(windows)] match islo::system::pick_files_for("选择要导入的日历文件（.ics）",true){
+                    #[cfg(windows)] match islo::system::pick_files_for(self.app.settings.locale().text("选择要导入的日历文件（.ics）"),true){
                         Ok(files)=>if !files.is_empty(){
                             let read:Vec<(String,String)>=files.iter().map(|path|{
                                 let name=path.file_name().map(|n|n.to_string_lossy().to_string()).unwrap_or_default();
@@ -537,7 +538,7 @@ impl eframe::App for Shell {
                     }
                 },
                 Cmd::AddFiles=>{
-                    #[cfg(windows)] match islo::system::pick_files(){Ok(files)=>if !files.is_empty(){self.app.on_drop(files);self.app.show_page(3);},Err(e)=>self.app.say(format!("无法选择文件：{}",e.code()))}
+                    #[cfg(windows)] match islo::system::pick_files_for(self.app.settings.locale().text("添加文件到置物架"),true){Ok(files)=>if !files.is_empty(){self.app.on_drop(files);self.app.show_page(3);},Err(e)=>self.app.say(format!("无法选择文件：{}",e.code()))}
                 },
                 Cmd::DragFile(p)=>{
                     #[cfg(windows)] if let Err(e)=islo::system::drag_file(&p){self.app.say(format!("无法拖出文件：{}",e.code()));}
@@ -546,7 +547,7 @@ impl eframe::App for Shell {
                 Cmd::DisconnectNotifications=>{#[cfg(windows)]{self.incoming=None;self.app.settings.read_notifications=false;self.app.settings.save();self.app.listener_status="已断开，不再读取 Windows 通知".into();}},
                 Cmd::Reveal(p)=>{let _=std::process::Command::new("explorer.exe").arg(format!("/select,{}",p.display())).spawn();},
                 Cmd::QuotaChooseFile=>{
-                    #[cfg(windows)] match islo::system::pick_files_for("选择 AI 账号的登录 JSON 文件",false){Ok(files)=>if let Some(path)=files.into_iter().next(){self.app.quota_set_source(path);},Err(_)=>self.app.say("无法选择登录文件")}
+                    #[cfg(windows)] match islo::system::pick_files_for(self.app.settings.locale().text("选择 AI 账号的登录 JSON 文件"),false){Ok(files)=>if let Some(path)=files.into_iter().next(){self.app.quota_set_source(path);},Err(_)=>self.app.say("无法选择登录文件")}
                 },
                 Cmd::QuotaRefresh=>{
                     if self.quota_at.ready(Duration::from_secs(15)) {

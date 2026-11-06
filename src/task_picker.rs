@@ -45,6 +45,7 @@ impl ReminderPicker {
         match (date-today).num_days(){0=>"今天".into(),1=>"明天".into(),2=>"后天".into(),_=>date.format(if date.year()==today.year(){"%m/%d"}else{"%y/%m/%d"}).to_string()}
     }
     pub fn draw(&mut self,c:&Card,title:&str,has_reminder:bool)->Option<PickerAction> {
+        let locale=crate::i18n::locale(c.ui.ctx());
         let ctx=c.ui.ctx();
         c.fill(196.0,31.0,181.0,99.0,11.0,Color32::from_rgb(23,23,25));
         c.text(204.0,45.0,&c.fit(title,9.5,W::Regular,165.0),9.5,W::Regular,theme::GRAY,H::Left);
@@ -76,29 +77,29 @@ impl ReminderPicker {
                 self.drag[column]-=steps as f32*18.0;self.adjust(column,steps);
             }
             if response.clicked(){if let Some(pos)=response.interact_pointer_pos(){let y=c.to_local(pos).y;if y<68.0{self.adjust(column,-1);}else if y>88.0{self.adjust(column,1);}}}
-            response.on_hover_text(format!("{} · 滚轮、上下拖动或点选调整",["日期","小时","分钟"][column]));
+            response.on_hover_text(locale.format("{0} · 滚轮、上下拖动或点选调整",&[("0",format!("{}",[locale.text("日期"),locale.text("小时"),locale.text("分钟")][column]))]));
             let position=ctx.animate_value_with_time(egui::Id::new(("reminder-wheel-position",column)),self.positions[column] as f32,if self.focus{0.0}else{0.13});
             let clipped=c.clipped(x,51.0,width,52.0);
             for value in position.floor() as i64-1..=position.floor() as i64+2 {
                 let distance=value as f32-position;
                 let strength=(1.0-distance.abs()*0.55).clamp(0.0,1.0);
-                let selected_size=if column==0{14.0}else{18.0};
+                let selected_size=if column==0{if locale.is_english(){11.5}else{14.0}}else{18.0};
                 let size=9.5+(selected_size-9.5)*strength;
                 let color=Color32::from_gray((85.0+170.0*strength) as u8);
-                clipped.centered_text(x+width/2.0,77.0+distance*18.0,&self.label(column,value),size,if strength>0.7{W::Semibold}else{W::Regular},color,H::Center);
+                clipped.centered_text(x+width/2.0,77.0+distance*18.0,&locale.text(&self.label(column,value)),size,if strength>0.7{W::Semibold}else{W::Regular},color,H::Center);
             }
         }
         let note=self.repeat_note.as_deref();
-        let (label,color)=if !self.error.is_empty(){(self.error.as_str(),theme::RED)}else if let Some(note)=note.filter(|n|!n.is_empty()){(note,theme::BLUE)}else{("已完成",theme::GRAY)};
+        let (label,color)=if !self.error.is_empty(){(locale.text(&self.error),theme::RED)}else if let Some(note)=note.filter(|n|!n.is_empty()){(note,theme::BLUE)}else{(locale.text("已完成"),theme::GRAY)};
         let w=c.text(42.0,79.0,label,9.0,W::Regular,color,H::Left);
-        if self.error.is_empty() && note==Some(""){c.text(42.0+w+4.0,79.0,"· 下方可设每周重复",9.0,W::Regular,theme::DIM,H::Left);}
+        if self.error.is_empty() && note==Some(""){c.text(42.0+w+4.0,79.0,locale.text("· 下方可设每周重复"),9.0,W::Regular,theme::DIM,H::Left);}
         let (skip,b)=capsule(c,41.0,105.0,100.0,22.0,"task-reminder-skip",theme::BTN,theme::BTN_HOVER);
-        b.centered_text(91.0,116.0,if has_reminder{"取消提醒"}else{"暂不提醒"},10.0,W::Regular,theme::GRAY,H::Center);
+        b.centered_text(91.0,116.0,if has_reminder{locale.text("取消提醒")}else{locale.text("暂不提醒")},10.0,W::Regular,theme::GRAY,H::Center);
         if skip.clicked(){return Some(PickerAction::Skip);}
         if c.hit(248.0,108.0,43.0,22.0,"task-reminder-cancel").clicked(){return Some(PickerAction::Cancel);}
-        c.centered_text(269.5,119.0,"取消",10.0,W::Regular,theme::GRAY,H::Center);
+        c.centered_text(269.5,119.0,locale.text("取消"),10.0,W::Regular,theme::GRAY,H::Center);
         let (save,b)=capsule(c,307.0,108.0,63.0,20.0,"task-reminder-save",Color32::from_rgb(10,132,255),Color32::from_rgb(35,150,255));
-        b.centered_text(338.5,118.0,"完成",10.0,W::Semibold,theme::WHITE,H::Center);
+        b.centered_text(338.5,118.0,locale.text("完成"),10.0,W::Semibold,theme::WHITE,H::Center);
         if save.clicked(){
             if self.repeat_note.as_deref().is_none_or(str::is_empty) && self.selected()<=Local::now().naive_local(){self.error="请选择晚于当前的时间".into();}
             else{return Some(PickerAction::Save);}

@@ -1,5 +1,5 @@
 # 使用独立目录和最小测试程序验证更新，不启动或替换日常使用的islo。
-param([switch]$EncryptedCache, [string]$FixtureVersion = '9.8.7')
+param([switch]$EncryptedCache, [string]$FixtureVersion = '9.8.7', [ValidateSet('zh-CN','en')][string]$Language = 'zh-CN')
 $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot -Parent
 $testRoot = Join-Path $project ('target\update-test-' + [Guid]::NewGuid().ToString('N'))
@@ -60,13 +60,13 @@ try {
             $start.UseShellExecute = $false
             $start.CreateNoWindow = $true
             $start.EnvironmentVariables['PSModulePath'] = $env:PSModulePath
-            $start.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$installer`" -WorkPath `"$work`" -TargetExe `"$target`" -ParentProcessId 0"
+            $start.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$installer`" -WorkPath `"$work`" -TargetExe `"$target`" -ParentProcessId 0 -Language $Language"
             $process = [Diagnostics.Process]::Start($start)
             if (-not $process.WaitForExit(30000)) { throw '继承终端环境的更新测试超时' }
             $code = $process.ExitCode
             $process.Dispose()
         } else {
-            & $shell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installer -WorkPath $work -TargetExe $target -ParentProcessId 0
+            & $shell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installer -WorkPath $work -TargetExe $target -ParentProcessId 0 -Language $Language
             $code = $LASTEXITCODE
         }
         if ($case -in @('success','inherited-shell','legacy-no-cli')) {
@@ -78,6 +78,8 @@ try {
             if (-not (Test-Path -LiteralPath (Join-Path $targetDir 'started.txt'))) { throw '更新后没有重启' }
         } else {
             if ($code -eq 0 -or -not (Test-Path -LiteralPath (Join-Path $work 'error.txt'))) { throw "未拒绝无效更新：$case" }
+            $errorText = [IO.File]::ReadAllText((Join-Path $work 'error.txt'))
+            if ($Language -eq 'en' -and $errorText -match '[\u4e00-\u9fff]') { throw "英文更新错误仍含中文：$case" }
             if ((Get-FileHash -LiteralPath $target).Hash -ne $before) { throw '无效更新修改了原程序' }
             if ((Get-FileHash -LiteralPath $cliTarget).Hash -ne $cliBefore) { throw '无效更新修改了 CLI' }
         }

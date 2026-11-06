@@ -1,5 +1,6 @@
-param([Parameter(Mandatory=$true)][string]$WorkPath, [Parameter(Mandatory=$true)][string]$TargetExe, [int]$ParentProcessId)
+param([Parameter(Mandatory=$true)][string]$WorkPath, [Parameter(Mandatory=$true)][string]$TargetExe, [int]$ParentProcessId, [ValidateSet('zh-CN','en')][string]$Language = 'zh-CN')
 $ErrorActionPreference = 'Stop'
+function Text([string]$Chinese, [string]$English) { if ($Language -eq 'en') { $English } else { $Chinese } }
 # 更新只使用当前 PowerShell 自带模块，避免继承其他终端版本的模块路径。
 $env:PSModulePath = [IO.Path]::Combine($PSHOME, 'Modules')
 $cacheRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'islo\Updates')).TrimEnd('\')
@@ -19,45 +20,45 @@ $exited = $false
 function Assert-PlainPath([string]$PathToCheck) {
     $ancestor = [IO.Path]::GetFullPath($PathToCheck)
     while ($ancestor) {
-        if ((Test-Path -LiteralPath $ancestor) -and ((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw '更新目录不能包含目录链接。' }
+        if ((Test-Path -LiteralPath $ancestor) -and ((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw (Text '更新目录不能包含目录链接。' 'Update folders cannot contain directory links.') }
         $ancestor = Split-Path $ancestor -Parent
     }
 }
 try {
-    if (-not $workRoot.StartsWith($cacheRoot + '\', [StringComparison]::OrdinalIgnoreCase)) { throw '更新缓存目录无效。' }
+    if (-not $workRoot.StartsWith($cacheRoot + '\', [StringComparison]::OrdinalIgnoreCase)) { throw (Text '更新缓存目录无效。' 'Invalid update cache folder.') }
     Assert-PlainPath $workRoot
     Assert-PlainPath $target
-    if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { throw '找不到当前程序。' }
+    if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { throw (Text '找不到当前程序。' 'Current executable not found.') }
     $version = (Get-Content -LiteralPath (Join-Path $workRoot 'version.txt') -Raw).Trim()
-    if ($version -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') { throw '更新版本号无效。' }
+    if ($version -notmatch '^\d+\.\d+\.\d+(?:\.\d+)?$') { throw (Text '更新版本号无效。' 'Invalid update version.') }
     $archive = Join-Path $workRoot 'update.zip'
     $expectedHash = (Get-Content -LiteralPath (Join-Path $workRoot 'hash.txt') -Raw).Trim()
-    if ($expectedHash -notmatch '^[a-fA-F0-9]{64}$' -or (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expectedHash) { throw '更新包校验失败。' }
+    if ($expectedHash -notmatch '^[a-fA-F0-9]{64}$' -or (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expectedHash) { throw (Text '更新包校验失败。' 'Update package verification failed.') }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [IO.Compression.ZipFile]::OpenRead($archive)
     try {
         $name = 'islo-v' + $version + '-windows-x64/islo.exe'
         $entries = @($zip.Entries | Where-Object {$_.FullName.Replace('\','/') -ceq $name})
-        if ($entries.Count -ne 1 -or $entries[0].Length -gt 200MB) { throw '更新包中缺少唯一的islo程序。' }
+        if ($entries.Count -ne 1 -or $entries[0].Length -gt 200MB) { throw (Text '更新包中缺少唯一的islo程序。' 'Update package must contain exactly one islo executable.') }
         [IO.Compression.ZipFileExtensions]::ExtractToFile($entries[0], $staged)
         $cliName = 'islo-v' + $version + '-windows-x64/islo-cli.exe'
         $cliEntries = @($zip.Entries | Where-Object {$_.FullName.Replace('\','/') -ceq $cliName})
-        if ($cliEntries.Count -gt 1 -or ($cliEntries.Count -eq 1 -and $cliEntries[0].Length -gt 200MB)) { throw '更新包中的 CLI 无效。' }
+        if ($cliEntries.Count -gt 1 -or ($cliEntries.Count -eq 1 -and $cliEntries[0].Length -gt 200MB)) { throw (Text '更新包中的 CLI 无效。' 'Invalid CLI in update package.') }
         $hasCli = $cliEntries.Count -eq 1
         if ($hasCli) { [IO.Compression.ZipFileExtensions]::ExtractToFile($cliEntries[0], $cliStaged) }
-        elseif (Test-Path -LiteralPath $cliTarget) { throw '更新包缺少已有的 CLI，不能只更新桌面程序。' }
+        elseif (Test-Path -LiteralPath $cliTarget) { throw (Text '更新包缺少已有的 CLI，不能只更新桌面程序。' 'Update package is missing the installed CLI. Both executables must be updated together.') }
     } finally { $zip.Dispose() }
     $actual = [Diagnostics.FileVersionInfo]::GetVersionInfo($staged).FileVersion
-    if ($actual -ne $version -and $actual -ne "$version.0") { throw '安装包版本不匹配。' }
+    if ($actual -ne $version -and $actual -ne "$version.0") { throw (Text '安装包版本不匹配。' 'Package version mismatch.') }
     if ($hasCli) {
         $cliActual = [Diagnostics.FileVersionInfo]::GetVersionInfo($cliStaged).FileVersion
-        if ($cliActual -ne $version -and $cliActual -ne "$version.0") { throw 'CLI 版本不匹配。' }
+        if ($cliActual -ne $version -and $cliActual -ne "$version.0") { throw (Text 'CLI 版本不匹配。' 'CLI version mismatch.') }
         Assert-PlainPath $cliTarget
     }
     Set-Content -LiteralPath (Join-Path $workRoot 'ready') -Value 'ok'
     if ($ParentProcessId -gt 0) {
         $parent = Get-Process -Id $ParentProcessId -ErrorAction SilentlyContinue
-        if ($parent -and -not $parent.WaitForExit(60000)) { throw 'islo尚未退出，请稍后重试。' }
+        if ($parent -and -not $parent.WaitForExit(60000)) { throw (Text 'islo尚未退出，请稍后重试。' 'islo has not exited yet. Try again later.') }
     }
     $exited = $true
     # 缓存可能启用 EFS；先复制备份，避免原子替换时跨加密边界移动旧程序。
@@ -99,6 +100,7 @@ try {
     }
     if ($exited) { Start-Process -FilePath $target -WorkingDirectory $targetDir -WindowStyle Hidden }
     Add-Type -AssemblyName System.Windows.Forms
-    [System.Windows.Forms.MessageBox]::Show("更新未完成：$message`r`n原版本已保留，可稍后重试或通过浏览器下载。", 'islo更新') | Out-Null
+    $failureText = Text "更新未完成：$message`r`n原版本已保留，可稍后重试或通过浏览器下载。" "Update failed: $message`r`nThe previous version was kept. Retry later or download in your browser."
+    [System.Windows.Forms.MessageBox]::Show($failureText, (Text 'islo更新' 'islo update')) | Out-Null
     exit 1
 }

@@ -1343,14 +1343,15 @@ impl App {
     }
 
     fn update_island_lyric_layout(&mut self,ctx:&egui::Context) {
+        let locale=self.settings.locale();
         if !self.island_lyrics_active(){self.island_lyric_layout=None;return;}
         let current=self.island_lyric();
         let text=if let Some((_,line))=current {line}
-            else if self.ly.loading || !lyric_key_matches(&self.ly.key,&self.media) {"正在查找歌词…"}
+            else if self.ly.loading || !lyric_key_matches(&self.ly.key,&self.media) {locale.text("正在查找歌词…")}
             else if let Some(lyrics)=&self.ly.lyrics {
-                if !lyrics.synced {"暂无同步歌词"}
-                else if lyrics.index_at(self.lyric_position()).is_none() {"前奏"}
-                else {"间奏"}
+                if !lyrics.synced {locale.text("暂无同步歌词")}
+                else if lyrics.index_at(self.lyric_position()).is_none() {locale.text("前奏")}
+                else {locale.text("间奏")}
             } else {""};
         let ink=if current.is_some(){theme::WHITE}else{theme::GRAY};
         let layout=|text:String| {
@@ -1446,6 +1447,7 @@ impl App {
     // 每帧入口
     // ---------------------------------------------------------------
     pub fn frame(&mut self, ui: &mut egui::Ui, win: Rect, env: &Env) -> FrameOut {
+        crate::i18n::set_locale(ui.ctx(),self.settings.locale());
         let ctx = ui.ctx().clone();
         let dt = match self.last_t {
             Some(t0) => (env.t - t0).clamp(0.0, 0.1) as f32,
@@ -1957,6 +1959,7 @@ impl App {
 
     /// 展开后的未读胶囊：每个账号一个图标，点击跳到对应窗口；超过三个时滚轮翻看。
     fn draw_unread_capsule(&mut self,ctx:&egui::Context,c:&Card,rect:Rect,cursor:Option<Pos2>,cmds:&mut Vec<Cmd>){
+        let locale=self.settings.locale();
         let n=self.pending_messengers.len();
         let height=rect.height()/c.s;
         let slot=self.unread_slot(height);
@@ -1980,8 +1983,8 @@ impl App {
                 inner.circle(x+10.0,cy+8.5,6.0,Color32::from_gray(238));
                 inner.centered_text(x+10.0,cy+8.5,&tag.to_string(),8.5,W::Bold,Color32::from_gray(28),H::Center);
             }
-            let name=match self.unread_tag(i){Some(n)=>format!("{} · 账号 {n}",u.source.name()),None=>u.source.name().to_string()};
-            let button=inner.hit(0.0,cy-slot/2.0,UNREAD_W,slot,self.unread_id(i)).on_hover_text(format!("查看{name}"));
+            let name=match self.unread_tag(i){Some(n)=>locale.format("{0} · 账号 {1}",&[("0",format!("{}",locale.text(u.source.name()))),("1",format!("{}",n))]),None=>locale.text(u.source.name()).to_string()};
+            let button=inner.hit(0.0,cy-slot/2.0,UNREAD_W,slot,self.unread_id(i)).on_hover_text(locale.format("查看{0}",&[("0",format!("{}",name))]));
             if button.clicked(){cmds.push(Cmd::ViewMessenger(u));}
         }
         if max_scroll>0.0 {
@@ -1994,6 +1997,7 @@ impl App {
 
     /// 收起时的未读入口：每个来源一个图标加小红点（同一来源多个账号合成一个）。只有一条时点它直接跳转，多条时展开面板挑选。
     fn draw_unread_stack(&mut self,c:&Card,horizontal:bool,cmds:&mut Vec<Cmd>){
+        let locale=self.settings.locale();
         let sources=self.unread_sources();
         let count=self.pending_messengers.len();
         let icons=sources.len().min(2);
@@ -2009,10 +2013,10 @@ impl App {
         let (w,h)=if horizontal {(self.unread_stack_len(true),BAR_H)}else{(32.0,self.unread_stack_len(false))};
         if count==1 {
             let u=self.pending_messengers[0];
-            let button=c.hit(0.0,0.0,w,h,u.source.name()).on_hover_text(format!("查看{}",u.source.name()));
+            let button=c.hit(0.0,0.0,w,h,u.source.name()).on_hover_text(locale.format("查看{0}",&[("0",format!("{}",locale.text(u.source.name())))]));
             if button.clicked(){cmds.push(Cmd::ViewMessenger(u));}
         }else{
-            let button=c.hit(0.0,0.0,w,h,"messenger-stack").on_hover_text(format!("{count} 条未读 · 展开挑选"));
+            let button=c.hit(0.0,0.0,w,h,"messenger-stack").on_hover_text(locale.format("{0} 条未读 · 展开挑选",&[("0",format!("{}",count))]));
             if button.clicked(){self.reveal_unread();}
         }
     }
@@ -2338,14 +2342,14 @@ impl App {
     // ---------------------------------------------------------------
     fn panel_body(&mut self, c: &Card, env: &Env, cmds: &mut Vec<Cmd>) {
         let locale=self.settings.locale();
-        let settings=c.hit(380.0,4.0,28.0,28.0,"page-settings").on_hover_text(if locale.is_english(){format!("Open {} settings",locale.text(PAGE_NAMES[self.page]))}else{format!("打开{}设置窗口",PAGE_NAMES[self.page])});
+        let settings=c.hit(380.0,4.0,28.0,28.0,"page-settings").on_hover_text(if locale.is_english(){format!("Open {} settings",locale.text(PAGE_NAMES[self.page]))}else{locale.format("打开{0}设置窗口",&[("0",format!("{}",PAGE_NAMES[self.page]))])});
         let (hover,press)=c.hover_t(&settings);
         c.circle(394.0,18.0,13.0,Color32::from_white_alpha((hover*24.0) as u8));
         paint::gear(&c.scaled(394.0,18.0,0.8*(1.0-press*0.08)),394.0,18.0,paint::mix(theme::GRAY,theme::WHITE,hover));
         if settings.clicked(){self.settings_tab=[1,2,3,5,4,7,11,8,12][self.page];self.open_settings();}
         if self.subpage==Some(self.page) {
             c.text(15.0,25.0,"‹",19.0,W::Bold,theme::WHITE,H::Left);
-            c.text(37.0,25.0,if self.page==2{"饮水设置"}else{"专注设置"},size::TITLE,W::Bold,theme::WHITE,H::Left);
+            c.text(37.0,25.0,if self.page==2{locale.text("饮水设置")}else{locale.text("专注设置")},size::TITLE,W::Bold,theme::WHITE,H::Left);
             if c.hit(9.0,7.0,28.0,23.0,"subpage-back").clicked(){self.subpage=None;}
             self.page_settings(c);self.nav(c);return;
         }
@@ -2457,7 +2461,7 @@ impl App {
         }
         let a = smoothstep(0.0, 0.16, e) * (1.0 - smoothstep(2.1, 2.4, e));
         let rise = (1.0 - anim::ease_out_cubic(e / 0.3)) * 6.0;
-        let msg=c.fit(&msg,size::BODY,W::Regular,310.0);
+        let msg=c.fit(&self.settings.locale().status(&msg),size::BODY,W::Regular,310.0);
         let w = c.text_w(&msg, size::BODY, W::Regular) + 26.0;
         let tc = c.faded(a);
         let y = base_y + rise;
@@ -2688,6 +2692,7 @@ impl App {
     }
 
     pub fn on_drop(&mut self, files: Vec<PathBuf>) {
+        let locale=self.settings.locale();
         if !self.settings.visible_pages[3] || files.is_empty() { return; }
         self.drag_hot = false;
         self.drag_saved = None;
@@ -2707,13 +2712,13 @@ impl App {
             }else{failed+=1;}
         }
         let message=if added==0 && failed==0 {
-            if duplicate==1{"该文件已在置物架中".into()}else{"这些文件已在置物架中".into()}
-        }else if added==0 && duplicate==0 {"文件不存在或无法访问".into()}
+            if duplicate==1{locale.text("该文件已在置物架中").into()}else{locale.text("这些文件已在置物架中").into()}
+        }else if added==0 && duplicate==0 {locale.text("文件不存在或无法访问").into()}
         else {
             let mut parts=Vec::new();
-            if added>0{parts.push(format!("已添加 {added} 个文件"));}
-            if duplicate>0{parts.push(format!("{duplicate} 个已存在"));}
-            if failed>0{parts.push(format!("{failed} 个无法添加"));}
+            if added>0{parts.push(locale.format("已添加 {0} 个文件",&[("0",format!("{}",added))]));}
+            if duplicate>0{parts.push(locale.format("{0} 个已存在",&[("0",format!("{}",duplicate))]));}
+            if failed>0{parts.push(locale.format("{0} 个无法添加",&[("0",format!("{}",failed))]));}
             parts.join("，")
         };
         self.say(message);
@@ -2725,6 +2730,7 @@ impl App {
 
     /// 待办输入框：真正的 egui 文本框，放在待办卡片顶部那一行。
     fn input_field(&mut self, ui: &mut egui::Ui, origin: Pos2, cmds: &mut Vec<Cmd>) {
+        let locale=self.settings.locale();
         let rect = Rect::from_min_size(origin + Vec2::new(222.0, 37.0), Vec2::new(142.0, 18.0));
         let mut buf = std::mem::take(&mut self.buf);
         let te = egui::TextEdit::singleline(&mut buf)
@@ -2733,7 +2739,7 @@ impl App {
             .margin(egui::Margin::ZERO)
             .text_color(theme::WHITE)
             .font(theme::font(size::BODY, W::Regular))
-            .hint_text(egui::RichText::new("要做点什么？回车保存").color(theme::DIM).font(theme::font(size::BODY, W::Regular)))
+            .hint_text(egui::RichText::new(locale.text("要做点什么？回车保存")).color(theme::DIM).font(theme::font(size::BODY, W::Regular)))
             .desired_width(rect.width());
         let resp = ui.put(rect, te);
         let first_focus=!self.todo_input_focused;

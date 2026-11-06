@@ -5,6 +5,139 @@ use std::sync::Mutex;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+fn i18n_settings_frame(h:&mut H,width:f32)->egui::FullOutput {
+    let output=std::sync::Arc::new(Mutex::new(None));let capture=output.clone();
+    egui::Context::set_immediate_viewport_renderer(move|ctx,mut viewport|{
+        let id=viewport.ids.this;
+        let raw=egui::RawInput{viewport_id:id,screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(width,2500.0))),viewports:std::iter::once((id,egui::ViewportInfo::default())).collect(),..Default::default()};
+        *capture.lock().unwrap()=Some(ctx.run(raw,|ctx|(viewport.viewport_ui_cb)(ctx)));
+    });
+    let mut root=h.ctx.run(Default::default(),|ctx|h.app.settings_ui(ctx,false));
+    let mut result=output.lock().unwrap().take().unwrap();root.textures_delta.append(result.textures_delta);result.textures_delta=root.textures_delta;result
+}
+
+#[test]
+fn i18n_provider_forms_and_populated_accounts_preserve_content_and_fit(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    let mut h=H::new();h.app.settings.language=crate::i18n::Language::English;h.app.open_settings();h.ctx.set_embed_viewports(false);
+    h.app.mail.accounts=vec![crate::mail::Account{email:"work@example.com".into(),provider:crate::mail::Provider::Exmail,enabled:true,custom:None},crate::mail::Account{email:"personal@example.com".into(),provider:crate::mail::Provider::Gmail,enabled:true,custom:None}];
+    h.app.mail.status.insert("work@example.com".into(),crate::mail::Status::Auth("没有保存授权码".into()));
+    h.app.mail.note="work@example.com：连接成功".into();h.app.calendar.form.guide_open=true;
+    h.app.quota.config.accounts.push(crate::quota::Account{id:"test".into(),provider:crate::quota::Provider::Codex,alias:"世界时钟".into(),source:"unused.json".into(),slot:None,enabled:true,pinned:true});
+    h.app.quota.rows.insert("test".into(),crate::quota::parse(crate::quota::Provider::Codex,&serde_json::json!({"rate_limit":{"primary_window":{"used_percent":28,"limit_window_seconds":18000},"secondary_window":{"used_percent":56,"limit_window_seconds":604800}}})));
+    h.app.quota.stale.insert("test".into(),"无法连接额度服务，请检查网络或代理".into());
+    for tab in [7,8,11] {
+        h.app.settings_tab=tab;
+        let count=if tab==7{crate::mail::Provider::ALL.len()}else if tab==8{crate::calendar::Provider::ALL.len()}else{crate::quota::Provider::ALL.len()};
+        for provider in 0..count {
+            if tab==7{h.app.mail.form.provider=crate::mail::Provider::ALL[provider];}
+            if tab==8{h.app.calendar.form.provider=crate::calendar::Provider::ALL[provider];}
+            if tab==11{h.app.quota.provider=crate::quota::Provider::ALL[provider];h.app.quota.connect_open=true;}
+            for _ in 0..2{let _=i18n_settings_frame(&mut h,600.0);}
+            let output=i18n_settings_frame(&mut h,600.0);
+            for shape in output.shapes{if let egui::Shape::Text(text)=shape.shape {
+                let label=text.galley.text();if label.is_empty()||label=="世界时钟"{continue;}
+                assert!(!label.chars().any(|ch|('\u{4e00}'..='\u{9fff}').contains(&ch)),"tab {tab} provider {provider} has untranslated text: {label}");
+                assert!(text.visual_bounding_rect().right()<=590.0,"tab {tab} provider {provider} overflows: {label} {:?}",text.visual_bounding_rect());
+            }}
+        }
+    }
+    assert_eq!(h.app.quota.config.accounts[0].alias,"世界时钟");assert_eq!(h.app.mail.accounts.len(),2);
+}
+
+#[test]
+fn i18n_editors_show_localized_validation_and_repeat_controls(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();h.app.settings.language=crate::i18n::Language::English;
+    let check=|h:&H|{for shape in &h.shapes{if let egui::Shape::Text(t)=&shape.shape{assert!(!t.galley.text().chars().any(|ch|('\u{4e00}'..='\u{9fff}').contains(&ch)),"Untranslated editor: {}",t.galley.text());}}};
+    let mut task=crate::model::TodoItem::new("My task");task.repeat=crate::model::REPEAT_WORKDAYS;task.due=Some("invalid".into());h.app.todos.items.push(task);
+    h.app.show_page(4);h.app.open_task_dialog(0);h.hover(H::local(200.0,30.0),1.0);
+    let save=h.ctx.read_response(egui::Id::new(("card",true,"task-save"))).unwrap().rect.center();h.click(save);h.frame(vec![]);check(&h);
+    h.app.open_task_reminder(0);h.hover(H::local(200.0,30.0),1.0);check(&h);
+    h.app.task_dialog=None;h.app.open_calendar_editor(None);h.app.calendar.draft.as_mut().unwrap().error="结束时间必须晚于开始时间".into();h.hover(H::local(200.0,30.0),1.0);check(&h);
+}
+
+#[test]
+#[ignore="Export internationalization previews without opening native windows"]
+fn i18n_preview_gallery(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    let dest=std::path::PathBuf::from(std::env::var_os("ISLO_I18N_PREVIEW_DIR").expect("preview output directory"));std::fs::create_dir_all(&dest).unwrap();
+    for dark in [false,true]{for tab in 0..13{
+        let mut h=H::new();h.app.settings.language=crate::i18n::Language::English;
+        h.app.settings.settings_theme=if dark{crate::settings_theme::SettingsTheme::Dark}else{crate::settings_theme::SettingsTheme::Light};
+        h.app.settings_tab=tab;h.app.open_settings();h.ctx.set_embed_viewports(false);
+        let mut raster=crate::preview_raster::Raster::new(600,2500);
+        for frame in 0..4{
+            let out=i18n_settings_frame(&mut h,600.0);raster.update_textures(&out.textures_delta);
+            if frame==3{
+                let bottom=out.shapes.iter().filter_map(|s|match &s.shape{egui::Shape::Text(t) if !t.galley.text().is_empty()&&t.visual_bounding_rect().left()>150.0=>Some(t.visual_bounding_rect().bottom()),_=>None}).fold(560.0_f32,f32::max).min(2480.0) as u32+20;
+                raster.buf.fill(if dark{[0.08,0.08,0.09,1.0]}else{[0.96,0.96,0.97,1.0]});raster.draw(&h.ctx.tessellate(out.shapes,out.pixels_per_point),out.pixels_per_point);
+                let mut rgba=vec![];raster.to_rgba8(&mut rgba);let image=image::RgbaImage::from_raw(600,2500,rgba).unwrap();
+                image::imageops::crop_imm(&image,0,0,600,bottom).to_image().save(dest.join(format!("settings-{tab}-{}.png",if dark{"dark"}else{"light"}))).unwrap();
+            }
+            raster.free_textures(&out.textures_delta);
+        }
+    }}
+}
+
+#[test]
+fn i18n_all_settings_are_english_and_fit_the_minimum_window_in_both_themes(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    for dark in [false,true] {for tab in 0..13 {
+        let mut h=H::new();h.app.settings.language=crate::i18n::Language::English;
+        h.app.settings.settings_theme=if dark{crate::settings_theme::SettingsTheme::Dark}else{crate::settings_theme::SettingsTheme::Light};
+        h.app.settings_tab=tab;h.app.open_settings();h.ctx.set_embed_viewports(false);
+        for _ in 0..2{let _=i18n_settings_frame(&mut h,600.0);}
+        let output=i18n_settings_frame(&mut h,600.0);
+        for shape in output.shapes {if let egui::Shape::Text(text)=shape.shape {
+            let label=text.galley.text();
+            if label.is_empty(){continue;}
+            assert!(!label.chars().any(|ch|('\u{4e00}'..='\u{9fff}').contains(&ch)),"tab {tab} still has untranslated UI: {label}");
+            assert!(text.visual_bounding_rect().right()<=590.0,"tab {tab} overflows the minimum window: {label} {:?}",text.visual_bounding_rect());
+        }}
+    }}
+}
+
+#[test]
+fn i18n_all_empty_pages_and_internal_notices_are_english(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    let mut h=H::new();h.app.settings.language=crate::i18n::Language::English;
+    for page in 0..9 {
+        h.app.show_page(page);h.hover(H::local(200.0,30.0),1.0);
+        for shape in &h.shapes {if let egui::Shape::Text(text)=&shape.shape {
+            assert!(!text.galley.text().chars().any(|ch|('\u{4e00}'..='\u{9fff}').contains(&ch)),"page {page} still has untranslated UI: {}",text.galley.text());
+        }}
+    }
+    h.cursor=None;h.app.open=false;
+    for (title,body,page) in [("大写锁定","已开启",0),("键盘输入语言","中文",0),("电源已连接","当前电量 80%",0),("网络连接","以太网 · 网络已连接",0),("喝水时间到了","喝一口，休息一下",2)] {
+        h.app.hud_notice=None;h.app.notice=None;h.app.alerts.clear();h.app.alert(title,body,page,false);
+        for _ in 0..60{h.frame(vec![]);}
+        for shape in &h.shapes {if let egui::Shape::Text(text)=&shape.shape {
+            assert!(!text.galley.text().chars().any(|ch|('\u{4e00}'..='\u{9fff}').contains(&ch)),"notice {title} still has untranslated UI: {}",text.galley.text());
+        }}
+    }
+}
+
+#[test]
+fn i18n_preserves_user_tasks_mail_and_external_notification_content(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();
+    h.app.settings.language=crate::i18n::Language::English;
+    // Use a title that is also a translation key. Generic painting must never translate it.
+    h.app.todos.items.push(crate::model::TodoItem::new("世界时钟"));h.app.show_page(4);h.hover(H::local(200.0,30.0),1.0);
+    assert!(h.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Text(t) if t.galley.text()=="世界时钟")));
+    h.app.mail.accounts.push(crate::mail::Account{email:"test@example.com".into(),provider:crate::mail::Provider::Custom,enabled:true,custom:None});
+    h.app.mail.recent.push(crate::mail::Item{account:"test@example.com".into(),from:"世界时钟".into(),subject:"检查更新".into(),time:"11-06 12:00".into(),code:None,received_unix:None,summary:"我的中文邮件正文".into(),links:vec![],meeting:None,uid:1});
+    h.app.show_page(5);h.hover(H::local(200.0,30.0),1.0);
+    let subject=h.app.mail.recent[0].subject.clone();let original=h.app.mail.recent.clone();
+    for language in [crate::i18n::Language::Chinese,crate::i18n::Language::English] {
+        h.app.settings.language=language;h.frame(vec![]);
+        assert_eq!(h.app.mail.recent[0].subject,subject);assert_eq!(h.app.mail.recent.len(),original.len());
+    }
+    h.app.settings.read_notifications=true;h.app.settings.notification_preview=true;h.app.receive_notification("世界时钟".into(),"test-original".into(),"收到新通知 · 内容已隐藏".into());
+    h.cursor=None;h.app.open=false;for _ in 0..60{h.frame(vec![]);}
+    assert!(h.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Text(t) if t.galley.text()=="世界时钟")));
+    assert!(h.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Text(t) if t.galley.text()=="收到新通知 · 内容已隐藏")));
+}
+
 #[test]
 fn agent_settings_use_live_state_and_invalid_batches_do_not_change_it() {
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();

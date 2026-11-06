@@ -8,12 +8,13 @@ pub(crate) fn preview_layout(order:&[usize],quotas:usize)->Layout {
 
 impl crate::app::App {
     pub(crate) fn resident_order_settings(&mut self,ui:&mut egui::Ui){
+        let locale=self.settings.locale();
         let default=if self.settings.show_battery {DEFAULT_ORDER.to_vec()}else{vec![QUOTA,PET,CLOCK,BATTERY,MUSIC,FOCUS]};
         let mut order=if valid_order(&self.settings.resident_order){self.settings.resident_order.clone()}else{default.clone()};
         ui.horizontal(|ui|{
-            ui.label(RichText::new("拖动岛上的图标").color(ui.visuals().text_color()));
+            ui.label(RichText::new(locale.text("拖动岛上的图标")).color(ui.visuals().text_color()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
-                if ui.small_button("恢复默认").clicked(){self.settings.resident_order.clear();order=default;}
+                if ui.small_button(locale.text("恢复默认")).clicked(){self.settings.resident_order.clear();order=default;}
             });
         });
         ui.add_space(12.0);
@@ -46,7 +47,7 @@ impl crate::app::App {
         let pointer=ui.ctx().pointer_interact_pos();
         let dragged=egui::DragAndDrop::payload::<usize>(ui.ctx());
         let mut movement=None;
-        let label=|slot|match slot{CLOCK=>"时间",BATTERY=>"电量",QUOTA=>"AI 额度",MUSIC=>"音乐",FOCUS=>"专注",_=>"吉祥物"};
+        let label=|slot|match slot{CLOCK=>locale.text("时间"),BATTERY=>locale.text("电量"),QUOTA=>locale.text("AI 额度"),MUSIC=>locale.text("音乐"),FOCUS=>locale.text("专注"),_=>locale.text("吉祥物")};
         for (index,&slot) in order.iter().enumerate(){
             let x=cx+layout.x[slot].unwrap();
             let width=match slot{CLOCK=>if self.settings.clock_period!=0 {84.0}else{44.0},BATTERY=>20.0,PET=>32.0,MUSIC=>14.0,FOCUS=>crate::focus_bar::WIDTH,_=>{
@@ -77,7 +78,7 @@ impl crate::app::App {
                 _=>{c.ring(x,15.0,10.0,2.0,theme::GRAY);c.text(x,18.0,"AI",7.0,W::Bold,theme::WHITE,H::Center);},
             }
             if is_dragged {ui.painter().line_segment([Pos2::new(rect.center().x,body.bottom()+6.0),Pos2::new(rect.center().x,body.bottom()+12.0)],egui::Stroke::new(2.0,theme::BLUE));}
-            response.on_hover_text(label(slot));
+            response.on_hover_text(locale.text(label(slot)));
         }
         if let Some(palette)=self.skin_palette() {
             let end=crate::skin_paint::shape_count(ui.ctx(),ui.layer_id());
@@ -86,8 +87,8 @@ impl crate::app::App {
         if let Some((slot,index))=movement{
             if let Some(from)=order.iter().position(|value|*value==slot){order.remove(from);order.insert(index,slot);self.settings.resident_order=order;}
         }
-        ui.painter().text(Pos2::new(stage.center().x,stage.bottom()-22.0),egui::Align2::CENTER_CENTER,"按住图标左右拖动",theme::font(11.0,W::Regular),Color32::from_gray(160));
+        ui.painter().text(Pos2::new(stage.center().x,stage.bottom()-22.0),egui::Align2::CENTER_CENTER,locale.text("按住图标左右拖动"),theme::font(11.0,W::Regular),Color32::from_gray(160));
         ui.add_space(8.0);
-        ui.label(RichText::new("灰色图标为暂未显示的组件；位置会保留。").size(11.0).color(ui.visuals().weak_text_color()));
+        ui.label(RichText::new(locale.text("灰色图标为暂未显示的组件；位置会保留。")).size(11.0).color(ui.visuals().weak_text_color()));
     }
 }

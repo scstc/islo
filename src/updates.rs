@@ -56,9 +56,10 @@ impl State {
                     }
                     let (tx, rx) = mpsc::channel(); self.rx = Some(rx); self.cancel = None;
                     self.message = "正在准备重启…".into();
+                    let locale=crate::i18n::locale(ctx);
                     let ctx = ctx.clone();
                     std::thread::spawn(move || {
-                        let event = match launch_installer(&work) { Ok(()) => Event::Installed, Err(error) => Event::Failed(error) };
+                        let event = match launch_installer(&work,locale) { Ok(()) => Event::Installed, Err(error) => Event::Failed(error) };
                         let _ = tx.send(event); ctx.request_repaint();
                     });
                 }
@@ -72,7 +73,8 @@ impl State {
     }
 
     pub(crate) fn ui(&mut self, ui: &mut egui::Ui) {
-        if ui.add_enabled(self.rx.is_none(), egui::Button::new("检查更新")).clicked() {
+        let locale=crate::i18n::locale(ui.ctx());
+        if ui.add_enabled(self.rx.is_none(), egui::Button::new(locale.text("检查更新"))).clicked() {
             let (tx, rx) = mpsc::channel(); self.rx = Some(rx);
             self.message.clear(); self.result = None; self.dialog_open = false;
             let ctx = ui.ctx().clone();
@@ -80,13 +82,13 @@ impl State {
         }
         match &self.result {
             Some(Ok(Some(release))) => {
-                if ui.button(format!("发现新版本 {} · 查看更新", release.version)).clicked() {
+                if ui.button(locale.format("发现新版本 {0} · 查看更新",&[("0",format!("{}",release.version))])).clicked() {
                     self.dialog_open = true; self.focus_requested = true;
                 }
             }
-            Some(Ok(None)) => { ui.label("当前已是最新版本"); }
-            Some(Err(message)) => { ui.label(message); ui.hyperlink_to("打开发布页", RELEASES); }
-            None if self.rx.is_some() => { ui.label("正在检查…"); }
+            Some(Ok(None)) => { ui.label(locale.text("当前已是最新版本")); }
+            Some(Err(message)) => { ui.label(locale.status(message)); ui.hyperlink_to(locale.text("打开发布页"), RELEASES); }
+            None if self.rx.is_some() => { ui.label(locale.text("正在检查…")); }
             _ => {}
         }
         ui.add_space(5.0);
@@ -98,6 +100,7 @@ impl State {
     }
 
     pub(crate) fn dialog_ui(&mut self, ctx: &egui::Context) {
+        let locale=crate::i18n::locale(ctx);
         use crate::theme::{self, W};
         if !self.dialog_open { return; }
         let Some(Ok(Some(release))) = self.result.clone() else { return; };
@@ -108,7 +111,7 @@ impl State {
         }).id();
         let installing = self.rx.is_some() && self.cancel.is_none();
         ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("islo-update"),
-            egui::ViewportBuilder::default().with_title("islo更新").with_icon(theme::app_icon())
+            egui::ViewportBuilder::default().with_title(locale.text("islo更新")).with_icon(theme::app_icon())
                 .with_inner_size([520.0, 416.0]).with_resizable(false).with_decorations(false)
                 .with_transparent(true).with_active(true), |ctx, _| {
                 if focus {
@@ -126,7 +129,7 @@ impl State {
                     ui.painter().rect_filled(window, 22.0, egui::Color32::from_rgb(25,25,28));
                     ui.painter().rect_stroke(window, 22.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(55,55,61)), egui::StrokeKind::Inside);
                     let close_rect = egui::Rect::from_min_size(window.right_top()+egui::vec2(-42.0,12.0),egui::vec2(28.0,28.0));
-                    let close = ui.interact(close_rect, ui.id().with("update-close"), egui::Sense::click()).on_hover_text("关闭");
+                    let close = ui.interact(close_rect, ui.id().with("update-close"), egui::Sense::click()).on_hover_text(locale.text("关闭"));
                     if close.hovered() { ui.painter().rect_filled(close_rect, 8.0, theme::BTN_HOVER); }
                     let center = close_rect.center();
                     for direction in [-1.0,1.0] {
@@ -150,7 +153,7 @@ impl State {
                             ui.image((logo,egui::vec2(52.0,52.0)));
                             ui.add_space(4.0);
                             ui.vertical(|ui| {
-                                ui.label(egui::RichText::new("islo有新版本了").font(theme::font(21.0,W::Semibold)));
+                                ui.label(egui::RichText::new(locale.text("islo有新版本了")).font(theme::font(21.0,W::Semibold)));
                                 ui.horizontal(|ui| {
                                     ui.label(egui::RichText::new(option_env!("ISLO_BUILD_LABEL").unwrap_or(env!("ISLO_APP_VERSION"))).color(theme::DIM));
                                     ui.label(egui::RichText::new("→").color(theme::DIM));
@@ -165,10 +168,10 @@ impl State {
                         egui::Frame::new().fill(egui::Color32::from_rgb(35,35,39)).corner_radius(12.0)
                             .inner_margin(16.0).show(ui, |ui| {
                                 ui.set_min_width(ui.available_width());
-                                ui.label(egui::RichText::new("本次更新").color(theme::GRAY).font(theme::font(11.5,W::Semibold)));
+                                ui.label(egui::RichText::new(locale.text("本次更新")).color(theme::GRAY).font(theme::font(11.5,W::Semibold)));
                                 egui::ScrollArea::vertical().id_salt("update-notes").max_height(96.0).min_scrolled_height(96.0)
                                     .auto_shrink([false,false]).show(ui, |ui| {
-                                        if release.notes.trim().is_empty() { ui.label("新版本已准备好。"); }
+                                        if release.notes.trim().is_empty() { ui.label(locale.text("新版本已准备好。")); }
                                         else { for line in release.notes.lines() {
                                             let line = line.trim();
                                             if line.is_empty() { ui.add_space(3.0); continue; }
@@ -181,18 +184,19 @@ impl State {
                                     });
                             });
                         ui.add_space(4.0);
-                        ui.label(egui::RichText::new(if self.message.is_empty(){"更新后自动重启，设置和记录会保留。"}else{&self.message}).color(theme::DIM).size(11.5));
+                        let message=if self.message.is_empty(){locale.text("更新后自动重启，设置和记录会保留。").to_owned()}else{locale.status(&self.message)};
+                        ui.label(egui::RichText::new(message).color(theme::DIM).size(11.5));
                         if self.cancel.is_some() {
                             ui.add(egui::ProgressBar::new(self.progress).fill(theme::BLUE).desired_height(8.0));
                             ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(if self.progress==0.0{"正在连接下载服务器…".into()}else if self.progress<1.0{format!("正在下载更新 · {:.0}%",self.progress*100.0)}else{"正在校验安装包…".into()}).color(theme::GRAY));
-                                if ui.button("取消下载").clicked() { self.cancel.as_ref().unwrap().store(true,Ordering::Relaxed); }
+                                ui.label(egui::RichText::new(if self.progress==0.0{locale.text("正在连接下载服务器…").into()}else if self.progress<1.0{locale.format("正在下载更新 · {0}%",&[("0",format!("{:.0}",self.progress*100.0))])}else{locale.text("正在校验安装包…").into()}).color(theme::GRAY));
+                                if ui.button(locale.text("取消下载")).clicked() { self.cancel.as_ref().unwrap().store(true,Ordering::Relaxed); }
                             });
                         } else {
                             ui.add_space(4.0);
                             ui.horizontal(|ui| {
-                                if ui.add_enabled(!installing,egui::Button::new("稍后").fill(theme::BTN).min_size(egui::vec2(110.0,40.0))).clicked() { self.dismiss(); }
-                                let install = egui::Button::new(egui::RichText::new(if installing{"正在准备重启…"}else{"下载并安装"}).color(theme::WHITE))
+                                if ui.add_enabled(!installing,egui::Button::new(locale.text("稍后")).fill(theme::BTN).min_size(egui::vec2(110.0,40.0))).clicked() { self.dismiss(); }
+                                let install = egui::Button::new(egui::RichText::new(if installing{locale.text("正在准备重启…")}else{locale.text("下载并安装")}).color(theme::WHITE))
                                     .fill(theme::BLUE).min_size(egui::vec2(ui.available_width(),40.0));
                                 if ui.add_enabled(release.package.is_some() && self.rx.is_none(),install).clicked() {
                                     let (tx,rx)=mpsc::channel(); self.rx=Some(rx);
@@ -208,11 +212,11 @@ impl State {
                         }
                         ui.add_space(2.0);
                         ui.horizontal(|ui| {
-                            ui.hyperlink_to(egui::RichText::new("浏览器下载").size(11.5).color(theme::GRAY),&release.page);
+                            ui.hyperlink_to(egui::RichText::new(locale.text("浏览器下载")).size(11.5).color(theme::GRAY),&release.page);
                             ui.label(egui::RichText::new("·").color(theme::DIM));
-                            ui.hyperlink_to(egui::RichText::new("查看发布说明").size(11.5).color(theme::GRAY),&release.page);
+                            ui.hyperlink_to(egui::RichText::new(locale.text("查看发布说明")).size(11.5).color(theme::GRAY),&release.page);
                         });
-                        if release.package.is_none() { ui.label(egui::RichText::new("此版本请通过浏览器下载。").size(11.5).color(theme::DIM)); }
+                        if release.package.is_none() { ui.label(egui::RichText::new(locale.text("此版本请通过浏览器下载。")).size(11.5).color(theme::DIM)); }
                     });
                     if self.rx.is_some() { ctx.request_repaint_after(Duration::from_millis(100)); }
                 });
@@ -229,7 +233,7 @@ fn clip_update_window(rect: egui::Rect, scale: f32) {
     unsafe extern "system" fn visit(hwnd: HWND, data: LPARAM) -> BOOL {
         let mut title = [0u16; 64];
         let len = GetWindowTextW(hwnd, &mut title) as usize;
-        if String::from_utf16_lossy(&title[..len]) != "islo更新" { return BOOL(1); }
+        if !["islo更新","islo update"].contains(&String::from_utf16_lossy(&title[..len]).as_ref()) { return BOOL(1); }
         let &(rect, scale) = &*(data.0 as *const (egui::Rect, f32));
         let region = update_window_region(rect, scale);
         let old = CreateRectRgn(0, 0, 0, 0);
@@ -339,14 +343,14 @@ fn transfer(input: &mut impl Read, output: &mut impl Write, package: &Package, c
 }
 
 #[cfg(windows)]
-fn launch_installer(work: &std::path::Path) -> Result<(), String> {
+fn launch_installer(work: &std::path::Path,locale:crate::i18n::Locale) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     let target = std::env::current_exe().map_err(|_| "无法找到当前程序")?;
     let shell = std::env::var_os("SystemRoot").map(PathBuf::from).ok_or("无法找到 Windows 目录")?
         .join("System32/WindowsPowerShell/v1.0/powershell.exe");
     let mut child = std::process::Command::new(shell).args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
         .arg(work.join("apply.ps1")).arg("-WorkPath").arg(work).arg("-TargetExe").arg(target)
-        .arg("-ParentProcessId").arg(std::process::id().to_string()).creation_flags(0x08000000)
+        .arg("-ParentProcessId").arg(std::process::id().to_string()).arg("-Language").arg(if locale.is_english(){"en"}else{"zh-CN"}).creation_flags(0x08000000)
         .spawn().map_err(|_| "无法启动更新程序，请通过浏览器下载安装")?;
     // 脚本先确认缓存和安装目录可用，再允许主程序退出。
     for _ in 0..100 {
@@ -358,7 +362,7 @@ fn launch_installer(work: &std::path::Path) -> Result<(), String> {
     Err(std::fs::read_to_string(work.join("error.txt")).unwrap_or_else(|_| "无法准备安装，请通过浏览器下载后安装".into()))
 }
 #[cfg(not(windows))]
-fn launch_installer(_: &std::path::Path) -> Result<(), String> { Err("仅支持 Windows 应用内更新".into()) }
+fn launch_installer(_: &std::path::Path,_:crate::i18n::Locale) -> Result<(), String> { Err("仅支持 Windows 应用内更新".into()) }
 
 fn version(value: &str) -> Option<[u64; 4]> {
     let mut numbers = [0; 4];
@@ -554,6 +558,34 @@ mod tests {
             assert_eq!(state.dialog_open, expected);
             assert_eq!(state.focus_requested, expected);
         }
+    }
+
+    #[test]
+    fn i18n_update_status_and_dialog_translate_ui_but_preserve_release_notes(){
+        let ctx=egui::Context::default();crate::theme::load_fonts(&ctx);
+        crate::i18n::set_locale(&ctx,crate::i18n::Locale::En);
+        for result in [Ok(None),Err("无法连接更新服务，请检查网络或代理后重试".into())]{
+            let mut state=State::default();state.result=Some(result);
+            let out=ctx.run(Default::default(),|ctx|{egui::CentralPanel::default().show(ctx,|ui|state.ui(ui));});
+            for shape in out.shapes{if let egui::Shape::Text(t)=shape.shape{assert!(!t.galley.text().chars().any(|ch|('\u{4e00}'..='\u{9fff}').contains(&ch)));}}
+        }
+        ctx.set_embed_viewports(false);
+        let output=std::sync::Arc::new(std::sync::Mutex::new(None));let capture=output.clone();
+        egui::Context::set_immediate_viewport_renderer(move|ctx,mut viewport|{
+            assert_eq!(viewport.builder.title.as_deref(),Some("islo update"));
+            let id=viewport.ids.this;
+            let raw=egui::RawInput{viewport_id:id,screen_rect:Some(egui::Rect::from_min_size(egui::Pos2::ZERO,egui::vec2(520.0,416.0))),viewports:std::iter::once((id,egui::ViewportInfo::default())).collect(),..Default::default()};
+            *capture.lock().unwrap()=Some(ctx.run(raw,|ctx|(viewport.viewport_ui_cb)(ctx)));
+        });
+        let mut state=State::default();state.dialog_open=true;state.message="下载已取消".into();
+        let notes="原始发布说明：用户内容保留原文";
+        state.result=Some(Ok(Some(Release{version:"26.4.3.2".into(),notes:notes.into(),page:RELEASES.into(),package:None})));
+        let _=ctx.run(Default::default(),|ctx|state.dialog_ui(ctx));
+        let out=output.lock().unwrap().take().unwrap();let mut saw_notes=false;
+        for shape in out.shapes{if let egui::Shape::Text(t)=shape.shape{
+            let label=t.galley.text();if label==notes{saw_notes=true;}else{assert!(!label.chars().any(|ch|('\u{4e00}'..='\u{9fff}').contains(&ch)),"Untranslated update UI: {label}");}
+        }}
+        assert!(saw_notes,"Release notes must retain their original text");
     }
 
     #[test]

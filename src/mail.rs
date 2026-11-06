@@ -231,6 +231,13 @@ pub enum Status {
 }
 
 impl Status {
+    pub fn localized(&self,locale:crate::i18n::Locale)->String {
+        match self {
+            Self::Idle=>locale.text("未连接").into(),Self::Connecting=>locale.text("连接中…").into(),Self::Ready=>locale.text("已连接").into(),
+            Self::Auth(message)=>locale.format("需要授权码：{0}",&[("0",locale.status(message))]),
+            Self::Failed(message)=>locale.format("连接失败：{0}",&[("0",locale.status(message))]),
+        }
+    }
     pub fn label(&self) -> String {
         match self {
             Status::Idle => "未连接".into(),

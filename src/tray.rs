@@ -4,7 +4,7 @@
 //! - `uID=1`，`uFlags=NIF_MESSAGE|NIF_ICON|NIF_TIP`，回调 `WM_APP+9`，提示 `islo`；
 //! - 图标取 exe 内 `RT_GROUP_ICON #1`，按 `SM_CXSMICON` 走 `LoadImageW`；
 //! - 左键、右键都弹同一个菜单，没有双击分支；
-//! - 菜单固定中文，含设置入口，前三项每次打开现算勾选态；
+//! - 菜单跟随界面语言，含设置入口，前三项每次打开现算勾选态；
 //! - 弹菜单前 `SetForegroundWindow`，期间 `SetTimer(12, 16ms)`，收尾 `KillTimer` +
 //!   `PostMessage(WM_NULL)` + `DestroyMenu`；
 //! - `Exit` 先摘图标再 `ExitProcess`；`TaskbarCreated` 广播时重建图标。
@@ -56,11 +56,12 @@ pub struct State {
     pub pet: bool,
     pub minimal: bool,
     pub autostart: bool,
+    pub locale: crate::i18n::Locale,
 }
 
-/// 菜单固定中文：启动 / 吉祥物 / 极简 / —— / 设置 / 关于 / 退出。
-fn labels() -> [&'static str; 6] {
-    ["开机启动", "吉祥物", "极简刘海", "关于islo", "退出", "设置…"]
+/// 启动 / 吉祥物 / 极简 / —— / 设置 / 关于 / 退出。
+fn labels(locale:crate::i18n::Locale) -> [&'static str; 6] {
+    ["开机启动", "吉祥物", "极简刘海", "关于islo", "退出", "设置…"].map(|text|locale.text(text))
 }
 
 struct Ctx {
@@ -176,7 +177,7 @@ fn remove_icon(hwnd: HWND) {
 }
 
 fn popup_menu(state: State) -> windows::core::Result<HMENU> {
-    let text = labels();
+    let text = labels(state.locale);
     let wide: Vec<Vec<u16>> = text.iter().map(|s| wide(s)).collect();
     unsafe {
         let menu = CreatePopupMenu()?;
@@ -221,12 +222,9 @@ fn menu_items(menu: HMENU) -> Vec<(String, bool, bool)> {
     }
 }
 
-fn about() {
-    let text = wide(&format!(
-        "islo {}\n\nWindows 桌面灵动岛小助手\n退出请右键托盘图标，选择「退出」。",
-        env!("ISLO_APP_VERSION")
-    ));
-    let title = wide("关于islo");
+fn about(locale:crate::i18n::Locale) {
+    let text = wide(&locale.format("islo {0}\n\nWindows 桌面灵动岛小助手\n退出请右键托盘图标，选择「退出」。",&[("0",env!("ISLO_APP_VERSION").into())]));
+    let title = wide(locale.text("关于islo"));
     unsafe {
         MessageBoxW(
             None,
@@ -289,7 +287,7 @@ fn show_menu_at(hwnd: HWND, ctx: &Ctx, x: i32, y: i32) {
                 let _ = ctx.tx.send(Event::ToggleMinimal);
             }
             CMD_SETTINGS => {let _=ctx.tx.send(Event::OpenSettings);}
-            CMD_ABOUT => about(),
+            CMD_ABOUT => about(ctx.state().locale),
             CMD_EXIT => {
                 // 原版：先摘图标，再结束进程
                 remove_icon(hwnd);
@@ -599,9 +597,9 @@ mod tests {
     #[test]
     fn menu_order_checks_and_separator() {
         for (state, want) in [
-            (State { pet: false, minimal: false, autostart: false }, [false, false, false]),
-            (State { pet: true, minimal: false, autostart: true }, [true, true, false]),
-            (State { pet: false, minimal: true, autostart: false }, [false, false, true]),
+            (State { pet: false, minimal: false, autostart: false, ..Default::default() }, [false, false, false]),
+            (State { pet: true, minimal: false, autostart: true, ..Default::default() }, [true, true, false]),
+            (State { pet: false, minimal: true, autostart: false, ..Default::default() }, [false, false, true]),
         ] {
             let menu = popup_menu(state).expect("创建菜单");
             let items = menu_items(menu);
@@ -617,8 +615,9 @@ mod tests {
     }
 
     #[test]
-    fn labels_are_fixed_chinese() {
-        assert_eq!(labels(), ["开机启动", "吉祥物", "极简刘海", "关于islo", "退出", "设置…"]);
+    fn labels_follow_the_current_interface_language() {
+        assert_eq!(labels(crate::i18n::Locale::ZhCn), ["开机启动", "吉祥物", "极简刘海", "关于islo", "退出", "设置…"]);
+        assert_eq!(labels(crate::i18n::Locale::En), ["Launch at login", "Companion", "Minimal island", "About islo", "Quit", "Settings…"]);
     }
 
     #[test]
