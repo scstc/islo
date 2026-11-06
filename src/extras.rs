@@ -168,7 +168,9 @@ impl App {
         }
     }
     pub(crate) fn pet_state(&self) -> PetState {
-        if let Some((state, _)) = self.pet.reaction {
+        if let Some(state) = self.settings.pet_expression.as_deref().and_then(PetState::parse) {
+            state
+        } else if let Some((state, _)) = self.pet.reaction {
             state
         } else if self.pet.waking_until > self.t {
             PetState::Waking
@@ -1247,14 +1249,34 @@ impl App {
                             setting_row(ui,locale.text("islo吉祥物"),locale.text("收起时常驻，播放音乐时一起唱歌"),&mut pet);
                             if pet!=self.settings.pet {self.set_pet(pet);}
                             if pet {
-                                let can_preview=self.pet_enabled();
-                                settings_control_row_right(ui,locale.text("表情预览"),|ui|{
-                                    egui::ComboBox::from_id_salt("pet-expression").selected_text(self.pet.preview.label(locale)).width(112.0).show_ui(ui,|ui|{
-                                        for state in PetState::ALL {ui.selectable_value(&mut self.pet.preview,state,state.label(locale));}
-                                    });
-                                    if ui.add_enabled(can_preview,egui::Button::new(locale.text("预览"))).on_disabled_hover_text(locale.text("表情需要顶部停靠，并关闭极简或自动避让状态。")).clicked(){self.pet.react(self.pet.preview);}
-                                });
-                                settings_hint(ui,locale.text("收起小岛后播放所选表情，随后恢复自动状态。"));
+                                let label_width=if locale.is_english(){130.0}else{SETTINGS_LABEL_W};
+                                let mut fixed=self.settings.pet_expression.is_some();
+                                settings_control_row(ui,locale.text("表情模式"),label_width,|ui|ui.horizontal(|ui|{settings_segmented(ui,&mut fixed,&[(false,locale.text("自动")),(true,locale.text("固定"))],72.0);}).response);
+                                if fixed!=self.settings.pet_expression.is_some() {
+                                    self.settings.pet_expression=fixed.then(||self.pet.preview.key().to_owned());
+                                    self.pet.reaction=None;self.pet.waking_until=0.0;
+                                }
+                                if fixed {
+                                    let mut expression=self.settings.pet_expression.as_deref().and_then(PetState::parse).unwrap_or(PetState::Happy);
+                                    settings_control_row(ui,locale.text("固定表情"),label_width,|ui|ui.horizontal(|ui|{
+                                        egui::ComboBox::from_id_salt("pet-fixed-expression").selected_text(expression.label(locale)).width(112.0).show_ui(ui,|ui|{
+                                            for state in PetState::ALL {ui.selectable_value(&mut expression,state,state.label(locale));}
+                                        });
+                                    }).response);
+                                    self.settings.pet_expression=Some(expression.key().to_owned());
+                                    self.pet.preview=expression;
+                                    settings_hint(ui,locale.text("所选表情会持续显示并自动保存，重启后仍然生效；切回自动模式可恢复状态联动。"));
+                                } else {
+                                    let can_preview=self.pet_enabled();
+                                    settings_control_row(ui,locale.text("表情预览"),label_width,|ui|ui.horizontal(|ui|{
+                                        egui::ComboBox::from_id_salt("pet-expression").selected_text(self.pet.preview.label(locale)).width(112.0).show_ui(ui,|ui|{
+                                            for state in PetState::ALL {ui.selectable_value(&mut self.pet.preview,state,state.label(locale));}
+                                        });
+                                        if ui.add_enabled(can_preview,egui::Button::new(locale.text("预览"))).on_disabled_hover_text(locale.text("表情需要顶部停靠，并关闭极简或自动避让状态。")).clicked(){self.pet.react(self.pet.preview);}
+                                    }).response);
+                                    settings_hint(ui,locale.text("收起小岛后播放所选表情，随后恢复自动状态。"));
+                                }
+                                if !self.pet_enabled() {settings_hint(ui,locale.text("表情需要顶部停靠，并关闭极简或自动避让状态。"));}
                             }
                         });
                         self.avoidance.settings(ui,&mut self.settings);

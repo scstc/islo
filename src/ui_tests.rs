@@ -6,6 +6,72 @@ use std::sync::Mutex;
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
+fn fixed_expression_selection_persists_and_overrides_automatic_states() {
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    use crate::{i18n::Language,pet::PetState};
+    fn draw(h:&mut H,events:Vec<egui::Event>) {
+        let output=std::sync::Arc::new(Mutex::new(None));let capture=output.clone();
+        egui::Context::set_immediate_viewport_renderer(move|ctx,mut viewport|{
+            let id=viewport.ids.this;
+            let raw=egui::RawInput{viewport_id:id,screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(600.0,2300.0))),events:events.clone(),viewports:std::iter::once((id,egui::ViewportInfo::default())).collect(),..Default::default()};
+            *capture.lock().unwrap()=Some(ctx.run(raw,|ctx|(viewport.viewport_ui_cb)(ctx)));
+        });
+        let _=h.ctx.run(Default::default(),|ctx|h.app.settings_ui(ctx,false));
+        h.shapes=output.lock().unwrap().take().unwrap().shapes;
+    }
+    fn click(h:&mut H,label:&str) {
+        let pos=h.shapes.iter().find_map(|s|match &s.shape{egui::Shape::Text(t) if t.galley.text()==label=>Some(t.visual_bounding_rect().center()),_=>None}).unwrap_or_else(||panic!("找不到表情设置：{label}"));
+        draw(h,vec![egui::Event::PointerMoved(pos)]);
+        for pressed in [true,false]{draw(h,vec![egui::Event::PointerButton{pos,button:egui::PointerButton::Primary,pressed,modifiers:Default::default()}]);}
+        draw(h,vec![]);
+    }
+    for language in [Language::Chinese,Language::English] {for dark in [false,true] {
+        let mut h=H::new();h.app.settings.language=language;
+        h.app.settings.settings_theme=if dark{crate::settings_theme::SettingsTheme::Dark}else{crate::settings_theme::SettingsTheme::Light};
+        h.app.open_settings();h.ctx.set_embed_viewports(false);
+        let locale=h.app.settings.locale();
+        for _ in 0..3{draw(&mut h,vec![]);}
+        click(&mut h,locale.text("固定"));click(&mut h,locale.text("开心"));click(&mut h,locale.text("好奇"));
+        assert_eq!(h.app.settings.pet_expression.as_deref(),Some("curious"));
+        assert_eq!(crate::model::Settings::load().pet_expression.as_deref(),Some("curious"),"选择固定表情必须立即保存");
+        assert!(!h.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Text(t) if t.galley.text()==locale.text("预览"))),"固定表情不应要求点击临时预览");
+        for (label,value) in [("表情模式","自动"),("固定表情","好奇")] {
+            let bounds=|label:&str|h.shapes.iter().find_map(|s|match &s.shape{egui::Shape::Text(t) if t.galley.text()==locale.text(label)=>Some(t.visual_bounding_rect()),_=>None}).unwrap();
+            assert!(bounds(label).right()+4.0<=bounds(value).left(),"表情标签不能覆盖选择控件：{label}");
+        }
+        for shape in &h.shapes {if let egui::Shape::Text(text)=&shape.shape {
+            assert!(text.visual_bounding_rect().right()<=590.0,"固定表情设置不能超出最小窗口：{}",text.galley.text());
+            if language==Language::English {assert!(!text.galley.text().chars().any(|c|('\u{4e00}'..='\u{9fff}').contains(&c)));}
+        }}
+        h.app.settings_open=false;h.app.open=false;h.app.pomo.running=true;h.app.media.playing=true;
+        h.power=(Some(10),false);h.network=Some(false);h.app.pet.react(PetState::Satisfied);
+        for _ in 0..400 {h.frame(vec![]);assert_eq!(h.app.pet.state,PetState::Curious,"固定选择不能被活动或反馈覆盖，也不能在 2.6 秒后失效");}
+        h.app=App::new(&h.ctx,Options{fetch_lyrics:false,pet_idle:1e9});
+        assert_eq!(h.app.pet_state(),PetState::Curious,"重启后必须恢复固定表情");
+        h.app.open_settings();for _ in 0..3{draw(&mut h,vec![]);}
+        click(&mut h,locale.text("自动"));
+        assert!(h.app.settings.pet_expression.is_none() && crate::model::Settings::load().pet_expression.is_none());
+        h.app.pomo.running=true;assert_eq!(h.app.pet_state(),PetState::Focused,"切回自动后应恢复专注状态联动");
+    }}
+}
+
+#[test]
+fn fixed_expression_settings_support_old_files_and_all_twenty_choices() {
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let _h=H::new();
+    use crate::{model::Settings,pet::PetState};
+    let path=crate::model::config_dir().join("settings.txt");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    for value in ["pet=1\n","pet=1\npet_expression=auto\n","pet=1\npet_expression=unknown\n"] {
+        std::fs::write(&path,value).unwrap();assert!(Settings::load().pet_expression.is_none(),"旧配置及未知表情应使用自动模式");
+    }
+    for state in PetState::ALL {
+        let mut settings=Settings::default();settings.pet_expression=Some(state.key().to_owned());settings.save();
+        assert_eq!(Settings::load().pet_expression,settings.pet_expression,"每种固定表情都应能保存及恢复");
+    }
+    Settings::default().save();assert!(Settings::load().pet_expression.is_none());
+}
+
+#[test]
 fn expression_preview_plays_on_the_island_then_restores_automatic_behavior() {
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();
     h.app.settings.language=crate::i18n::Language::English;h.app.settings_tab=0;h.app.open_settings();h.ctx.set_embed_viewports(false);
@@ -34,6 +100,41 @@ fn expression_preview_plays_on_the_island_then_restores_automatic_behavior() {
     assert_eq!(h.app.pet.state,crate::pet::PetState::Curious);
     for _ in 0..240{h.frame(vec![]);}
     assert!(h.app.pet.reaction.is_none());assert_eq!(h.app.pet.state,crate::pet::PetState::Awake);
+}
+
+#[test]
+#[ignore = "按需导出固定表情设置预览"]
+fn fixed_expression_settings_preview() {
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    let dest=std::path::PathBuf::from(std::env::var_os("ISLO_FIXED_EXPRESSION_PREVIEW_DIR").expect("需指定预览目录"));
+    std::fs::create_dir_all(&dest).unwrap();
+    for language in [crate::i18n::Language::Chinese,crate::i18n::Language::English] {for dark in [false,true] {
+        let mut h=H::new();h.app.settings.language=language;h.app.settings.pet_expression=Some("laughing".into());
+        h.app.settings.settings_theme=if dark{crate::settings_theme::SettingsTheme::Dark}else{crate::settings_theme::SettingsTheme::Light};
+        h.app.open_settings();h.ctx.set_embed_viewports(false);
+        let output=std::sync::Arc::new(Mutex::new(None));let capture=output.clone();
+        egui::Context::set_immediate_viewport_renderer(move|ctx,mut viewport|{
+            let id=viewport.ids.this;
+            let raw=egui::RawInput{viewport_id:id,screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(600.0,2300.0))),viewports:std::iter::once((id,egui::ViewportInfo::default())).collect(),..Default::default()};
+            *capture.lock().unwrap()=Some(ctx.run(raw,|ctx|(viewport.viewport_ui_cb)(ctx)));
+        });
+        let mut raster=crate::preview_raster::Raster::new(600,2300);
+        for frame in 0..4 {
+            let root=h.ctx.run(Default::default(),|ctx|h.app.settings_ui(ctx,false));
+            let child=output.lock().unwrap().take().unwrap();
+            raster.update_textures(&root.textures_delta);raster.update_textures(&child.textures_delta);
+            if frame==3 {
+                let top=child.shapes.iter().find_map(|shape|match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.text()==language.resolve().text("islo吉祥物")=>Some((text.visual_bounding_rect().top()-18.0).max(0.0)as u32),_=>None,
+                }).expect("固定表情设置必须可见");
+                raster.buf.fill([0.0,0.0,0.0,1.0]);raster.draw(&h.ctx.tessellate(child.shapes,child.pixels_per_point),child.pixels_per_point);
+                let mut rgba=Vec::new();raster.to_rgba8(&mut rgba);
+                let image=image::RgbaImage::from_raw(600,2300,rgba).unwrap();
+                image::imageops::crop_imm(&image,180,top,420,230.min(2300-top)).to_image().save(dest.join(format!("fixed-{}-{}.png",language.key(),if dark{"dark"}else{"light"}))).unwrap();
+            }
+            raster.free_textures(&root.textures_delta);raster.free_textures(&child.textures_delta);
+        }
+    }}
 }
 
 #[test]

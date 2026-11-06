@@ -32,6 +32,10 @@ pub(crate) enum PetState {
 
 impl PetState {
     pub const ALL:[Self;20]=[Self::Awake,Self::Curious,Self::Waking,Self::Happy,Self::Satisfied,Self::Music,Self::Worried,Self::Focused,Self::Dozing,Self::Sleeping,Self::Listening,Self::Thinking,Self::Loading,Self::Excited,Self::Laughing,Self::Shy,Self::Sad,Self::Angry,Self::Surprised,Self::Confused];
+    pub fn key(self)->&'static str {
+        match self {Self::Awake=>"awake",Self::Curious=>"curious",Self::Waking=>"waking",Self::Happy=>"happy",Self::Satisfied=>"satisfied",Self::Music=>"music",Self::Worried=>"worried",Self::Focused=>"focused",Self::Dozing=>"dozing",Self::Sleeping=>"sleeping",Self::Listening=>"listening",Self::Thinking=>"thinking",Self::Loading=>"loading",Self::Excited=>"excited",Self::Laughing=>"laughing",Self::Shy=>"shy",Self::Sad=>"sad",Self::Angry=>"angry",Self::Surprised=>"surprised",Self::Confused=>"confused"}
+    }
+    pub fn parse(key:&str)->Option<Self> {Self::ALL.into_iter().find(|state|state.key()==key)}
     pub fn label(self,locale:crate::i18n::Locale)->&'static str {
         locale.text(match self {Self::Awake=>"待机",Self::Curious=>"好奇",Self::Waking=>"苏醒",Self::Happy=>"开心",Self::Satisfied=>"满足",Self::Music=>"听音乐",Self::Worried=>"担心",Self::Focused=>"专注",Self::Dozing=>"困倦",Self::Sleeping=>"睡眠",Self::Listening=>"倾听",Self::Thinking=>"思考",Self::Loading=>"加载",Self::Excited=>"兴奋",Self::Laughing=>"大笑",Self::Shy=>"害羞",Self::Sad=>"难过",Self::Angry=>"生气",Self::Surprised=>"惊讶",Self::Confused=>"疑惑"})
     }
