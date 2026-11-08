@@ -84,6 +84,9 @@ impl Shell {
         diagnostics::graphics(cc);
         diagnostics::startup("加载本地配置");
         let mut app = App::new(&cc.egui_ctx, Options::default());
+        if app.settings.cli_enabled {
+            if let Err(error)=islo::cli_registration::refresh(){app.cli_note=format!("{}: {error}",app.settings.locale().text("命令注册失败"));}
+        }
         #[cfg(feature="record")] let quota_demo=std::env::var("ISLO_QUOTA_DEMO").is_ok();
         #[cfg(not(feature="record"))] let quota_demo=false;
         diagnostics::startup("初始化额度配置");
@@ -559,6 +562,12 @@ impl eframe::App for Shell {
                 Cmd::ToggleAutostart=>{
                     #[cfg(windows)] {let want=!self.autostart;match islo::tray::set_autostart(want){Ok(())=>self.autostart=want,Err(e)=>self.app.say(e)}}
                 },
+                Cmd::SetCliEnabled(enabled)=>{
+                    self.app.cli_note=match islo::cli_registration::configure(&mut self.app.settings,enabled){
+                        Ok(())=>if enabled{"命令已注册，请重新打开终端后使用 islo-cli".into()}else{"命令行接口已关闭".into()},
+                        Err(error)=>format!("{}: {error}",self.app.settings.locale().text("命令注册失败")),
+                    };
+                },
                 Cmd::SetVolume(v)=>{
                     #[cfg(windows)] islo::system::set_volume(v);
                     self.volume_quiet=PollClock::now();
@@ -579,6 +588,11 @@ impl eframe::App for Shell {
                     let accounts=if enabled{self.app.mail_accounts().to_vec()}else{Vec::new()};
                     self.mail.sync(&accounts,self.app.settings.mail_interval);
                     self.mail_sig=(enabled,self.app.settings.mail_interval,self.app.mail_accounts().to_vec());
+                },
+                Cmd::MailReconnect(email)=>{
+                    self.mail.restart(&email);
+                    let accounts=if self.app.settings.mail_enabled{self.app.mail_accounts().to_vec()}else{Vec::new()};
+                    self.mail.sync(&accounts,self.app.settings.mail_interval);
                 },
                 Cmd::MailTest(account,password)=>self.mail.test(account,password),
                 Cmd::CalendarTest(cfg,password)=>self.cal.test(cfg,password),
@@ -601,6 +615,8 @@ impl eframe::App for Shell {
         self.app.settings_ui(ctx, autostart);
         self.app.world_clock_window_ui(ctx, &env);
         self.app.mail_reader_ui(ctx);
+        self.app.task_reminder_ui(ctx);
+        self.app.agent_mail_input_ui(ctx);
         #[cfg(windows)] let repaint_after=if self.hidden{Duration::from_secs(1)}else{out.repaint_after};
         #[cfg(not(windows))] let repaint_after=out.repaint_after;
         schedule_repaint(ctx,repaint_after);

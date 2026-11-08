@@ -1,4 +1,4 @@
 interface:
-  display_name: "islo settings"
-  short_description: "Read and update islo preferences through its local CLI"
-  default_prompt: "Use $islo-control to inspect and update my islo settings."
+  display_name: "islo control"
+  short_description: "Manage islo via CLI with private local secret prompts"
+  default_prompt: "Use $islo-control to manage my islo tasks and supported settings, keeping ordinary input in CLI commands and sensitive input in local secret-only prompts."

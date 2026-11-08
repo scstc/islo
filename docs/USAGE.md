@@ -40,6 +40,7 @@
 | 腾讯企业邮 | 网页版设置中的客户端收发设置；企业管理员可能限制 IMAP 或第三方客户端 |
 | iCloud | Apple 账号开启双重认证后，在账号安全页面生成 App 专用密码 |
 | Gmail | Google 账号开启两步验证后生成应用专用密码；单位账号可能由管理员禁用此入口 |
+| Outlook／Hotmail | 选择 Outlook，填写邮箱并点击「登录并连接 Outlook」，在微软官方网页授权；先在 Outlook 网页设置中开启 IMAP。发行版需由产品方配置桌面应用 Client ID，见 [接入研发说明](OUTLOOK.md) |
 
 以服务商当前页面为准，islo设置页也提供对应说明和网页入口。Gmail 在部分网络环境下需要能够访问 Google；islo不会替你改变系统网络设置。
 

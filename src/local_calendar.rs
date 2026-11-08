@@ -66,14 +66,19 @@ pub(crate) fn decode(raw:&[u8])->Result<Vec<Entry>,String> {
     }).collect()
 }
 pub(crate) fn load()->Result<Vec<Entry>,String> {
-    match std::fs::read(crate::model::config_dir().join("local-calendar.json")) {
+    load_from(&crate::model::config_dir().join("local-calendar.json"))
+}
+pub(crate) fn load_from(path:&std::path::Path)->Result<Vec<Entry>,String> {
+    match std::fs::read(path) {
         Ok(raw)=>decode(&raw),Err(e) if e.kind()==std::io::ErrorKind::NotFound=>Ok(vec![]),Err(_)=>Err("无法读取本机日程文件".into()),
     }
 }
 pub(crate) fn save(entries:&[Entry])->Result<(),String> {
+    save_to(entries,&crate::model::config_dir().join("local-calendar.json"))
+}
+pub(crate) fn save_to(entries:&[Entry],path:&std::path::Path)->Result<(),String> {
     let rows:Vec<_>=entries.iter().map(|entry|serde_json::json!({"uid":entry.event.uid,"title":entry.event.title,"start":entry.event.start,
         "end":entry.event.end,"all_day":entry.event.all_day,"reminder":entry.reminder})).collect();
-    let path=crate::model::config_dir().join("local-calendar.json");
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|_|"无法创建日程目录")?;
     crate::model::atomic_write(&path,&serde_json::to_vec(&rows).map_err(|_|"日程序列化失败")?).map_err(|_|"日程保存失败，请检查磁盘和文件权限".into())
 }

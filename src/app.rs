@@ -21,11 +21,11 @@ use std::path::PathBuf;
 
 // ---------- 几何（逻辑点；原版 125% 截图 ÷ 1.25） ----------
 pub const PW: f32 = 419.0; // 展开面板宽
-pub const PH: f32 = 140.0; // 展开面板高
+pub const PH: f32 = 166.0; // 展开面板高（含底部分页留白）
 pub(crate) const CALENDAR_PAGE: usize = 7;
 pub(crate) const WORLD_CLOCK_PAGE: usize = 8;
-pub(crate) const WORLD_CLOCK_H: f32 = 332.0;
-pub(crate) const CALENDAR_H: f32 = 216.0;
+pub(crate) const WORLD_CLOCK_H: f32 = 352.0;
+pub(crate) const CALENDAR_H: f32 = 256.0;
 pub const BAR_W: f32 = 163.0; // 收起药丸宽
 pub const BAR_H: f32 = 30.0; // 收起药丸高
 pub(crate) const HUD_W: f32 = 260.0;
@@ -164,6 +164,7 @@ pub enum Cmd {
     RequestQqNotifications,
     DisconnectNotifications,
     ToggleAutostart,
+    SetCliEnabled(bool),
     AddFiles,
     DragFile(PathBuf),
     QuotaRefresh,
@@ -175,6 +176,7 @@ pub enum Cmd {
     ToggleMute,
     /// v0.5.5：账号清单变了，让外壳重新同步收信线程。
     MailSync,
+    MailReconnect(String),
     /// 测试某个邮箱的连接（授权码只在内存里传给工作线程）。
     MailTest(mail::Account, String),
     /// v0.5.6：用临时密码试连日历，成功后才允许落盘。
@@ -566,6 +568,9 @@ impl CalendarState {
 }
 
 pub struct App {
+    pub cli_note: String,
+    pub(crate) task_reminder: crate::task_reminder::State,
+    pub(crate) agent_mail: crate::agent_mail::State,
     pub opts: Options,
     pub settings: model::Settings,
     pub(crate) todos: model::TodoList,
@@ -746,7 +751,7 @@ impl App {
             page_dir: 1.0,
             page_t0: -10.0,
             slide: Spring::new(0.0, 260.0, 0.92),
-            dots: std::array::from_fn(|i| Spring::new(if i == initial_page { 16.0 } else { 4.0 }, 380.0, 0.86)),
+            dots: std::array::from_fn(|i| Spring::new(if i == initial_page { 20.0 } else { 4.0 }, 380.0, 0.86)),
             wheel_delta: 0.0,
             wheel_at: -1.0,
             wheel_page_at: -1.0,
@@ -788,7 +793,7 @@ impl App {
             forced_open_until:0.0, settings_open:false, displays:Vec::new(), browser_at_top:false, browser_minimal_active:false, glass_tint:0.0, fluid:Default::default(), fluid_origin:Pos2::ZERO, fluid_art:None, fluid_title:String::new(), screen:None, settings_focus_requested:false, settings_tab:0, settings_category:0, wechat_status:String::new(), notification_apps:model::NotificationApps::load(), subpage:None, task_dialog:None,
             listener_status: "尚未连接".into(),
             notification_bell_until: 0.0, notification_bell_at: -10.0, notice: None, hud_notice: None, hud_alpha: 0.0, notice_width:Spring::new(0.0,CLOSE.0,CLOSE.1), notice_details:false, pending_messengers:Vec::new(), messenger_scroll:0.0, alerts: Default::default(), history: Default::default(), pending: vec![],
-            todo_first: 0, pet: Default::default(), last_drink: None,
+            todo_first: 0, pet: Default::default(), last_drink: None, cli_note: String::new(), task_reminder: Default::default(), agent_mail: Default::default(),
             toast: None, toast_below: false,
             last_input: 0.0, system_idle: None,
             last_cursor: None,
@@ -1308,7 +1313,7 @@ impl App {
 
     fn dots_target(&mut self) {
         for (i, d) in self.dots.iter_mut().enumerate() {
-            d.target = if i == self.page { 16.0 } else { 4.0 };
+            d.target = if i == self.page { 20.0 } else { 4.0 };
         }
     }
 
@@ -1429,13 +1434,15 @@ impl App {
     }
 
     pub fn expanded_height(&self)->f32 {
-        if self.page==WORLD_CLOCK_PAGE {WORLD_CLOCK_H}else if self.page==CALENDAR_PAGE {CALENDAR_H}else if self.page==5&&self.mail.open_uid.is_some(){236.0}else{PH}
+        if self.page==WORLD_CLOCK_PAGE {WORLD_CLOCK_H}else if self.page==CALENDAR_PAGE {CALENDAR_H}else if self.page==5&&self.mail.open_uid.is_some(){256.0}else{PH}
     }
 
     /// 为加高的世界时钟及其切页动效保留足够的透明画布。
     pub fn canvas_height(&self)->f32 {
         if self.page==WORLD_CLOCK_PAGE || self.page_from==WORLD_CLOCK_PAGE && self.page_e()<0.7 {
             (WORLD_CLOCK_H*1.08+24.0).ceil()
+        } else if self.page==CALENDAR_PAGE || self.page_from==CALENDAR_PAGE && self.page_e()<0.7 {
+            (CALENDAR_H*1.08+24.0).ceil()
         } else {WIN_H}
     }
 
@@ -1583,7 +1590,7 @@ impl App {
                         let next=self.wheel_delta<0.0;
                         self.wheel_delta=0.0;
                         let calendar_len=if self.page==CALENDAR_PAGE {self.calendar_entries(self.calendar.view.day).len()}else{0};
-                        let calendar_body=self.page==CALENDAR_PAGE && Rect::from_min_max(Pos2::new(163.0,52.0),Pos2::new(378.0,208.0)).contains(cursor);
+                        let calendar_body=self.page==CALENDAR_PAGE && Rect::from_min_max(Pos2::new(194.0,52.0),Pos2::new(378.0,208.0)).contains(cursor);
                         let clipboard_tab=self.page==3 && self.shelf_tab==1;
                         let list=match self.page {
                             CALENDAR_PAGE if calendar_body=>Some((&mut self.calendar.view.first,calendar_len.saturating_sub(4))),
@@ -2381,7 +2388,7 @@ impl App {
         let base = 25.0;
         let (a, b, col) = match page {
             0 | CALENDAR_PAGE | WORLD_CLOCK_PAGE => return,
-            1 => ("番茄", "专注", theme::RED_TOP),
+            1 => ("专注", "", theme::RED_TOP),
             2 => ("饮水", "提醒", theme::BLUE),
             // 置物架的标题就是「置物架 | 剪贴板」分栏，由页面自己画。
             3 => return,
@@ -2400,30 +2407,40 @@ impl App {
     fn nav(&mut self, c: &Card) {
         let pages: Vec<_>=self.settings.page_order.iter().copied().filter(|page|self.settings.visible_pages[*page]).collect();
         if pages.len()<2 { return; }
-        let l = c.hit(8.0, 55.0, 26.0, 26.0, "nav-l");
-        let r = c.hit(385.0, 55.0, 26.0, 26.0, "nav-r");
+        let l = c.hit(1.0, 48.0, 40.0, 40.0, "nav-l");
+        let r = c.hit(378.0, 48.0, 40.0, 40.0, "nav-r");
         let (lh, lp) = c.hover_t(&l);
         let (rh, rp) = c.hover_t(&r);
         paint::chevron(c, 21.0, 68.0, -1.0, lh, lp);
         paint::chevron(c, 398.0, 68.0, 1.0, rh, rp);
         if l.clicked() { self.navigate_page(false); }
         if r.clicked() { self.navigate_page(true); }
-        // 页码豆居中排列；世界时钟使用小地球作为页面标识。
-        let gap = 4.0;
-        let dot_y=self.expanded_height()-7.2;
+        // 发光胶囊随切页弹性伸缩；世界时钟保留小地球标识。
+        let gap = 8.0;
+        let dot_y=self.expanded_height()-22.0;
         let total: f32 = pages.iter().map(|page|if *page==WORLD_CLOCK_PAGE {self.dots[*page].pos.max(12.0)}else{self.dots[*page].pos}).sum::<f32>() + gap * (pages.len()-1) as f32;
         let mut x = PW / 2.0 - total / 2.0;
+        c.fill(x-12.0,dot_y-10.0,total+24.0,20.0,10.0,theme::CARD);
+        c.stroke(x-12.0,dot_y-10.0,total+24.0,20.0,10.0,0.6,Color32::from_white_alpha(22));
         let mut clicked = None;
         for i in pages {
             let w = self.dots[i].pos.max(if i==WORLD_CLOCK_PAGE {12.0}else{3.0});
-            let on = anim::remap(w, 4.0, 16.0);
-            let col = paint::mix(Color32::from_rgb(92, 92, 96), theme::WHITE, on);
-            if i==WORLD_CLOCK_PAGE {crate::world_clock::page_marker(c,x+w/2.0,dot_y,5.5,i==self.page);}
-            else {c.fill(x, dot_y - 2.0, w, 4.0, 2.0, col);}
-            let hr = c.hit(x - 2.0, dot_y - 7.0, w + 4.0, 14.0, ("dot", i));
+            let on = if i==WORLD_CLOCK_PAGE {if i==self.page {1.0}else{0.0}}else{anim::remap(w,4.0,20.0)};
+            let accent=theme::CYAN;
+            c.fill(x-5.0,dot_y-7.0,w+10.0,14.0,7.0,paint::alpha(accent,0.09*on));
+            c.fill(x-2.0,dot_y-4.5,w+4.0,9.0,4.5,paint::alpha(accent,0.18*on));
+            if i==WORLD_CLOCK_PAGE {
+                crate::world_clock::page_marker(c,x+w/2.0,dot_y,5.5,i==self.page);
+                if i==self.page {c.ring(x+w/2.0,dot_y,7.5,0.7,paint::alpha(accent,0.55));}
+            }else{
+                let col=paint::mix(theme::DIM,accent,on);
+                c.fill(x,dot_y-2.5,w,5.0,2.5,col);
+                if w>8.0 {c.fill(x+3.0,dot_y-1.5,w-6.0,1.2,0.6,paint::alpha(theme::WHITE,0.55*on));}
+            }
+            let hr = c.hit(x - 4.0, dot_y - 10.0, w + 8.0, 20.0, ("dot", i));
             hr.clone().on_hover_text(self.settings.locale().text(PAGE_NAMES[i]));
             if hr.hovered() && i != self.page && i!=WORLD_CLOCK_PAGE {
-                c.fill(x - 1.0, dot_y - 3.0, w + 2.0, 6.0, 3.0, Color32::from_white_alpha(28));
+                c.fill(x - 1.0, dot_y - 3.5, w + 2.0, 7.0, 3.5, Color32::from_white_alpha(48));
             }
             if hr.clicked() {
                 clicked = Some(i);
@@ -2509,7 +2526,11 @@ impl App {
         }
         let now = format!("{} {}", env.today, env.clock.get(..5).unwrap_or("00:00"));
         let due: Vec<_> = self.todos.items.iter().enumerate().filter(|(_, item)| item.reminder_due(&now)).map(|(i,item)| (i,item.text.clone())).collect();
-        for (i,text) in due { self.todos.items[i].mark_reminded(&now); self.todos.save(); self.alert("待办到时间了", text, 4, true); }
+        for (i,text) in due {
+            self.todos.items[i].mark_reminded(&now);
+            self.todos.items[i].reminder_pending=self.settings.fullscreen_task_reminders && self.settings.notifications;
+            self.todos.save();self.alert("待办到时间了", text, 4, true);
+        }
         // v0.5.5 会议提醒：.ics 里的开始时间，默认提前 15 分钟（可设 5/15/30）。
         // v0.5.6 起日历（CalDAV）事件走同一套：同一场会（UID + DTSTART）只提醒一次，
         // 邮件和日历两条来源撞上了也只弹一次。

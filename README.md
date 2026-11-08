@@ -118,7 +118,7 @@ islo贴在屏幕顶部，收起时是一条小刘海。鼠标靠近时展开，�
 
 | 类型 | 当前入口 | 说明 |
 | --- | --- | --- |
-| 邮箱 | QQ、163、126、腾讯企业邮、iCloud、Gmail | IMAP；使用服务商要求的授权码或 App 专用密码 |
+| 邮箱 | QQ、163、126、腾讯企业邮、iCloud、Gmail、Outlook／Hotmail | IMAP；Outlook 使用微软 OAuth2 网页授权，其余使用授权码或 App 专用密码 |
 | 工作日历 | 飞书、钉钉、企业微信 | CalDAV；需要平台提供的独立日历账号／密码，安装桌面端本身不等于授权 |
 | AI 额度 | Codex、Claude、Kimi、Grok Bot、Gemini | 各服务的本机登录引用或独立连接方式；不同账号与订阅的可用性可能不同 |
 

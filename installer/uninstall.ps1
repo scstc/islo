@@ -6,6 +6,8 @@ Get-Process islo -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq $exeP
     $null=$_.CloseMainWindow();if(-not $_.WaitForExit(3000)){Stop-Process -Id $_.Id}
 }
 $shell=New-Object -ComObject WScript.Shell
+$cliPath=Join-Path $installDir 'islo-cli.exe'
+if(Test-Path -LiteralPath $cliPath){& $cliPath --unregister-cli;if($LASTEXITCODE -ne 0){throw '无法撤销 CLI 命令注册，卸载已停止。'}}
 $links=@((Join-Path $shell.SpecialFolders.Item('Desktop') 'islo.lnk'),(Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\islo.lnk'),(Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\islo设置.lnk'))
 foreach($path in $links){if((Test-Path -LiteralPath $path) -and $shell.CreateShortcut($path).TargetPath -eq $exePath){Remove-Item -LiteralPath $path}}
 $runKey='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'

@@ -24,6 +24,7 @@ pub enum Provider {
     Exmail,
     ICloud,
     Gmail,
+    Outlook,
     Custom,
 }
 
@@ -34,13 +35,14 @@ impl Default for Provider {
 }
 
 impl Provider {
-    pub const ALL: [Provider; 7] = [
+    pub const ALL: [Provider; 8] = [
         Provider::Qq,
         Provider::Mail163,
         Provider::Mail126,
         Provider::Exmail,
         Provider::ICloud,
         Provider::Gmail,
+        Provider::Outlook,
         Provider::Custom,
     ];
 
@@ -52,6 +54,7 @@ impl Provider {
             Provider::Exmail => "exmail",
             Provider::ICloud => "icloud",
             Provider::Gmail => "gmail",
+            Provider::Outlook => "outlook",
             Provider::Custom => "custom",
         }
     }
@@ -64,6 +67,7 @@ impl Provider {
             Provider::Exmail => "腾讯企业邮",
             Provider::ICloud => "iCloud 邮箱",
             Provider::Gmail => "Gmail",
+            Provider::Outlook => "Outlook / Hotmail",
             Provider::Custom => "自定义 IMAP",
         }
     }
@@ -76,6 +80,7 @@ impl Provider {
             Provider::Exmail => "imap.exmail.qq.com",
             Provider::ICloud => "imap.mail.me.com",
             Provider::Gmail => "imap.gmail.com",
+            Provider::Outlook => "outlook.office365.com",
             Provider::Custom => "",
         }
     }
@@ -92,6 +97,7 @@ impl Provider {
     /// 设置界面的操作指引。
     pub fn hint(self) -> &'static str {
         match self {
+            Provider::Outlook => "通过微软官方网页登录并授权，无需在 islo 中填写微软密码。令牌只保存在本机系统凭据管理器。首次接入请在 Outlook 网页设置中开启 IMAP。",
             Provider::Custom => "向学校或单位管理员确认 IMAP 主机、TLS 端口及用户名。仅支持连接即加密的 IMAP over TLS（通常 993）与 LOGIN/应用专用密码。严格校验证书；不支持明文、STARTTLS、OAuth2 或网页登录/SSO。修改服务器或用户名必须重新输入该目标的授权码。",
             Provider::Qq => "1. 登录 QQ 邮箱网页版，点右上角「设置」→ 左侧「账号与安全」。\n2. 在新页面选「安全设置」，向下找到「POP3/IMAP/SMTP/Exchange/CardDAV 服务」；未开启时先按提示开启。\n3. 点「生成授权码」，完成验证后复制到下方。这里填写授权码，不是 QQ 密码或邮箱独立密码。",
             Provider::Mail163 | Provider::Mail126 => "1. 登录对应的网易邮箱网页版，点顶部「设置」→「POP3/SMTP/IMAP」。\n2. 确认「IMAP/SMTP 服务」已开启；首次开启时按提示完成验证。\n3. 在「授权密码管理」中点「新增授权密码」，完成验证后复制到下方。填写客户端授权码，不是邮箱登录密码。",
@@ -109,6 +115,7 @@ impl Provider {
             Provider::Exmail => ("打开腾讯企业邮网页版", "https://exmail.qq.com/"),
             Provider::ICloud => ("打开 Apple 账户", "https://account.apple.com/"),
             Provider::Gmail => ("打开应用专用密码", "https://myaccount.google.com/apppasswords"),
+            Provider::Outlook => ("Microsoft 应用注册说明",crate::outlook::REGISTRATION_HELP),
             Provider::Custom => ("", ""),
         }
     }
@@ -120,6 +127,7 @@ impl Provider {
             "exmail" => Provider::Exmail,
             "icloud" => Provider::ICloud,
             "gmail" => Provider::Gmail,
+            "outlook" => Provider::Outlook,
             "custom" => Provider::Custom,
             _ => Provider::Qq,
         }
@@ -155,6 +163,7 @@ impl Account {
     }
     /// Custom secrets are bound to the TLS endpoint and exact login identity.
     pub fn credential_key(&self)->String{
+        if self.provider==Provider::Outlook{return format!("outlook-{}",key(self));}
         if self.provider!=Provider::Custom{return key(self);}
         let identity=match self.endpoint(){Ok((host,port,user))=>format!("{}\0{host}\0{port}\0{user}",key(self)),Err(_)=>"invalid-custom-endpoint".into()};
         let digest=ring::digest::digest(&ring::digest::SHA256,identity.as_bytes());
@@ -220,6 +229,24 @@ pub fn save_accounts(items: &[Account]) {
     let _ = crate::model::atomic_write(&path, &data);
 }
 
+pub(crate) fn save_accounts_to(items:&[Account],path:&std::path::Path)->Result<(),String>{
+    if let Some(parent)=path.parent(){std::fs::create_dir_all(parent).map_err(|_|"Cannot create mailbox configuration directory")?;}
+    crate::model::atomic_write(path,&encode_accounts(items)).map_err(|_|"Cannot save mailbox configuration".into())
+}
+
+pub(crate) fn load_accounts_from(path:&std::path::Path)->Result<Vec<Account>,String>{
+    let raw=match std::fs::read(path){Ok(raw)=>raw,Err(e) if e.kind()==std::io::ErrorKind::NotFound=>return Ok(vec![]),Err(_)=>return Err("Cannot read mailbox configuration".into())};
+    let rows:serde_json::Value=serde_json::from_slice(&raw).map_err(|_|"Invalid mailbox configuration JSON")?;
+    let rows=rows.as_array().ok_or("Mailbox configuration must be an array")?;
+    let decoded=decode_accounts(&raw);
+    if decoded.len()!=rows.len(){return Err("Mailbox configuration contains invalid accounts".into());}
+    for (row,account) in rows.iter().zip(&decoded){
+        if !Provider::ALL.iter().any(|p|Some(p.key())==row["provider"].as_str()){return Err("Mailbox configuration contains an unknown provider".into());}
+        account.endpoint()?;
+    }
+    Ok(decoded)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Status {
     Idle,
@@ -234,7 +261,7 @@ impl Status {
     pub fn localized(&self,locale:crate::i18n::Locale)->String {
         match self {
             Self::Idle=>locale.text("未连接").into(),Self::Connecting=>locale.text("连接中…").into(),Self::Ready=>locale.text("已连接").into(),
-            Self::Auth(message)=>locale.format("需要授权码：{0}",&[("0",locale.status(message))]),
+            Self::Auth(message)=>locale.format("需要授权：{0}",&[("0",locale.status(message))]),
             Self::Failed(message)=>locale.format("连接失败：{0}",&[("0",locale.status(message))]),
         }
     }
@@ -243,7 +270,7 @@ impl Status {
             Status::Idle => "未连接".into(),
             Status::Connecting => "连接中…".into(),
             Status::Ready => "已连接".into(),
-            Status::Auth(msg) => format!("需要授权码：{msg}"),
+            Status::Auth(msg) => format!("需要授权：{msg}"),
             Status::Failed(msg) => format!("连接失败：{msg}"),
         }
     }
@@ -581,41 +608,34 @@ use crate::otp;
 
 #[cfg(windows)]
 pub mod secrets {
-    /// 凭据只进 Windows 凭据管理器；键是邮箱地址，值是授权码。
-    pub fn save(email: &str, password: &str) -> Result<(), String> {
-        let entry = keyring::Entry::new(super::SERVICE, &email.to_ascii_lowercase())
-            .map_err(|e| format!("凭据管理器不可用：{e}"))?;
-        entry.set_password(password).map_err(|e| format!("保存授权码失败：{e}"))
+    static LOCK:std::sync::Mutex<()>=std::sync::Mutex::new(());
+    fn entry(key:&str)->Result<keyring::Entry,String>{keyring::Entry::new(super::SERVICE,&key.to_ascii_lowercase()).map_err(|_|"Credential manager unavailable".into())}
+    fn get_unlocked(key:&str)->Result<Option<String>,String>{
+        let result=if key.starts_with("outlook-"){entry(key)?.get_secret().map(|bytes|String::from_utf8(bytes).map_err(|_|"Invalid stored authorization".to_string()))}else{entry(key)?.get_password().map(Ok)};
+        match result {Ok(value)=>value.map(Some),Err(keyring::Error::NoEntry)=>Ok(None),Err(_)=>Err("Cannot read the credential manager".into())}
     }
-
-    pub fn load(email: &str) -> Result<String, String> {
-        let entry = keyring::Entry::new(super::SERVICE, &email.to_ascii_lowercase())
-            .map_err(|e| format!("凭据管理器不可用：{e}"))?;
-        entry.get_password().map_err(|_| "没有保存授权码".to_string())
-    }
-
-    pub fn delete(email: &str) {
-        if let Ok(entry) = keyring::Entry::new(super::SERVICE, &email.to_ascii_lowercase()) {
-            let _ = entry.delete_credential();
-        }
-    }
+    fn save_unlocked(key:&str,value:&str)->Result<(),String>{let entry=entry(key)?;let result=if key.starts_with("outlook-"){entry.set_secret(value.as_bytes())}else{entry.set_password(value)};result.map_err(|_|"Cannot save credentials".into())}
+    pub fn get(key:&str)->Result<Option<String>,String>{let _guard=LOCK.lock().unwrap_or_else(|e|e.into_inner());get_unlocked(key)}
+    pub fn save(key:&str,value:&str)->Result<(),String>{let _guard=LOCK.lock().unwrap_or_else(|e|e.into_inner());save_unlocked(key,value)}
+    pub fn load(key:&str)->Result<String,String>{get(key)?.ok_or_else(||"No saved authorization; sign in again".into())}
+    pub fn remove(key:&str)->Result<(),String>{let _guard=LOCK.lock().unwrap_or_else(|e|e.into_inner());match entry(key)?.delete_credential(){Ok(())|Err(keyring::Error::NoEntry)=>Ok(()),Err(_)=>Err("Cannot remove credentials".into())}}
+    pub fn delete(key:&str){let _=remove(key);}
+    pub(crate) fn replace_if_matches(key:&str,old:&str,next:&str)->Result<(),String>{let _guard=LOCK.lock().unwrap_or_else(|e|e.into_inner());if get_unlocked(key)?.as_deref()!=Some(old){return Err("Authorization changed; retry with the current account".into());}save_unlocked(key,next)}
 }
-
 #[cfg(not(windows))]
 pub mod secrets {
-    pub fn save(_email: &str, _password: &str) -> Result<(), String> {
-        Err("仅 Windows 支持凭据管理器".into())
-    }
-    pub fn load(_email: &str) -> Result<String, String> {
-        Err("仅 Windows 支持凭据管理器".into())
-    }
-    pub fn delete(_email: &str) {}
+    pub fn get(_: &str)->Result<Option<String>,String>{Err("Credential manager requires Windows".into())}
+    pub fn save(_: &str,_: &str)->Result<(),String>{Err("Credential manager requires Windows".into())}
+    pub fn load(_: &str)->Result<String,String>{Err("Credential manager requires Windows".into())}
+    pub fn remove(_: &str)->Result<(),String>{Err("Credential manager requires Windows".into())}
+    pub fn delete(_: &str){}
+    pub(crate) fn replace_if_matches(_: &str,_: &str,_: &str)->Result<(),String>{Err("Credential manager requires Windows".into())}
 }
 
 // ---------------------------------------------------------------- 收信服务
 
 #[cfg(windows)]
-mod net {
+pub(crate) mod net {
     //! TLS 连接 + 163/126 的 pre-login `ID` 握手。
     //!
     //! `imap` 2.4 只在已登录的 `Session` 上暴露 `run_command_and_check_ok`，
@@ -750,9 +770,16 @@ mod net {
         // 3) 把问候交回 imap，再正常登录
         let mut client = imap::Client::new(Prefixed::new(greeting, stream));
         client.read_greeting().map_err(|e| format!("服务器问候异常：{e}"))?;
-        let session = client
-            .login(username, password)
-            .map_err(|(e, _)| login_error(e))?;
+        let session = if account.provider==super::Provider::Outlook {
+            struct OAuth<'a>{user:&'a str,token:&'a str}
+            impl imap::Authenticator for OAuth<'_> {
+                type Response=String;
+                fn process(&self,challenge:&[u8])->String {
+                    if challenge.is_empty(){format!("user={}\x01auth=Bearer {}\x01\x01",self.user,self.token)}else{String::new()}
+                }
+            }
+            client.authenticate("XOAUTH2",&OAuth{user:&username,token:password}).map_err(|_|"Outlook 登录失败，请重新授权并确认 IMAP 已开启".to_string())?
+        }else{client.login(username,password).map_err(|(e,_)|login_error(e))?};
         Ok(session)
     }
 
@@ -784,6 +811,7 @@ mod service {
     enum Cmd {
         Sync(Vec<Account>, u32),
         Test(Account, String),
+        Restart(String),
     }
 
     pub struct Service {
@@ -809,6 +837,8 @@ mod service {
             let _ = self.cmd.send(Cmd::Test(account, password));
         }
 
+        pub fn restart(&self,email:&str){let _=self.cmd.send(Cmd::Restart(email.to_ascii_lowercase()));}
+
         pub fn try_recv(&self) -> Option<Event> {
             self.ev.try_recv().ok()
         }
@@ -819,6 +849,7 @@ mod service {
         let interval = Arc::new(AtomicU64::new(120));
         while let Ok(cmd) = cmd_rx.recv() {
             match cmd {
+                Cmd::Restart(email)=>{if let Some((flag,_,_))=workers.remove(&email){flag.store(true,Ordering::Relaxed);}},
                 Cmd::Sync(accounts, secs) => {
                     interval.store(secs.clamp(30, 900) as u64, Ordering::Relaxed);
                     let wanted: HashMap<String, Account> = accounts
@@ -859,7 +890,9 @@ mod service {
                     let _ = std::thread::Builder::new()
                         .name("islo-mail-test".into())
                         .spawn(move || {
-                            let result = net::probe(&account, &password);
+                            let result = if account.provider==super::Provider::Outlook {
+                                crate::outlook::access_token(&account).and_then(|token|net::probe(&account,&token))
+                            }else{net::probe(&account,&password)};
                             let _ = ev.send(Event::Test {
                                 account: account.email,
                                 ok: result.is_ok(),
@@ -933,7 +966,7 @@ mod service {
                 account: account.email.clone(),
                 status: Status::Connecting,
             });
-            let password = match secrets::load(&account.credential_key()) {
+            let password = match if account.provider==super::Provider::Outlook{crate::outlook::access_token(&account)}else{secrets::load(&account.credential_key())} {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = ev.send(Event::Status {
@@ -1134,6 +1167,7 @@ mod service {
     pub struct Service;
 
     impl Service {
+        pub fn restart(&self,_email:&str){}
         pub fn start() -> Self {
             Self
         }
@@ -1220,7 +1254,7 @@ mod tests {
 
     #[test]
     fn provider_presets_cover_six_kinds() {
-        assert_eq!(Provider::ALL.len(), 7);
+        assert_eq!(Provider::ALL.len(), 8);
         assert_eq!(Provider::parse("gmail"), Provider::Gmail);
         assert_eq!(Provider::Gmail.host(), "imap.gmail.com");
         assert_eq!(Provider::Gmail.port(), 993);

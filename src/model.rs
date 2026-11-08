@@ -185,6 +185,8 @@ pub fn island_size_value(value: u32) -> u32 {
 
 #[derive(Clone, Debug)]
 pub struct Settings {
+    pub cli_enabled: bool,
+    pub fullscreen_task_reminders: bool,
     pub display_id: String,
     /// 岛体皮肤、毛玻璃是否使用系统模糊、大小百分比、水平位置。
     pub skin: Skin,
@@ -232,6 +234,7 @@ pub struct Settings {
     pub water_end: u32,
     /// v0.5.5 邮件提醒：总开关、验证码高亮、轮询间隔（秒）、会议提前量（分钟）。
     pub mail_enabled: bool,
+    pub outlook_client_id: String,
     pub mail_code: bool,
     pub mail_code_hide_seconds:u32,
     pub mail_interval: u32,
@@ -247,12 +250,15 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { display_id: String::new(), skin: Skin::Classic, island_shape: IslandShape::Notch, glass_blur: true, island_size: 100, island_offset: 0, dock: Dock::Top, settings_theme: Default::default(), language: Default::default(), pet: true, pet_expression: None, minimal: false, browser_minimal: false, avoid_browsers: true, avoid_apps: Vec::new(), visible_pages: [true; 9], page_order: [0,1,2,3,4,5,6,7,8], world_clock_cities: crate::world_clock::default_cities(), show_battery: true, clock_12h: false, clock_period: 0, resident_order: Vec::new(), system_hud: true, bluetooth_notifications: true, read_notifications:false, wechat_notifications:false, wechat_tray_open:false, qq_only:false, notification_preview:false, notifications: true, sound: false, lyrics_enabled:true, island_lyrics:false, lyric_delay_ms:-350, hide_fullscreen: true, focus_minutes: 25, rest_minutes: 5, water_minutes: 45, serving_ml: 250, water_start: 9, water_end: 22, mail_enabled: true, mail_code: true, mail_code_hide_seconds:60, mail_interval: 120, mail_ics: 15, ignored_mail_events: Vec::new(), calendar_prompt: true, calendar_auto_sync: true, clipboard_history: true }
+        Self { cli_enabled: false, fullscreen_task_reminders: false, display_id: String::new(), skin: Skin::Classic, island_shape: IslandShape::Notch, glass_blur: true, island_size: 100, island_offset: 0, dock: Dock::Top, settings_theme: Default::default(), language: Default::default(), pet: true, pet_expression: None, minimal: false, browser_minimal: false, avoid_browsers: true, avoid_apps: Vec::new(), visible_pages: [true; 9], page_order: [0,1,2,3,4,5,6,7,8], world_clock_cities: crate::world_clock::default_cities(), show_battery: true, clock_12h: false, clock_period: 0, resident_order: Vec::new(), system_hud: true, bluetooth_notifications: true, read_notifications:false, wechat_notifications:false, wechat_tray_open:false, qq_only:false, notification_preview:false, notifications: true, sound: false, lyrics_enabled:true, island_lyrics:false, lyric_delay_ms:-350, hide_fullscreen: true, focus_minutes: 25, rest_minutes: 5, water_minutes: 45, serving_ml: 250, water_start: 9, water_end: 22, mail_enabled: true, outlook_client_id: option_env!("ISLO_OUTLOOK_CLIENT_ID").filter(|id|crate::outlook::valid_client_id(id)).unwrap_or("").to_ascii_lowercase(), mail_code: true, mail_code_hide_seconds:60, mail_interval: 120, mail_ics: 15, ignored_mail_events: Vec::new(), calendar_prompt: true, calendar_auto_sync: true, clipboard_history: true }
     }
 }
 
 impl Settings {
     pub fn locale(&self)->crate::i18n::Locale {self.language.resolve()}
+    pub(crate) fn outlook_client_id(&self)->&str {
+        if self.outlook_client_id.is_empty(){option_env!("ISLO_OUTLOOK_CLIENT_ID").unwrap_or("")}else{&self.outlook_client_id}
+    }
 
     /// 主窗口（灵动岛）的界面缩放倍率。
     pub fn island_scale(&self) -> f32 {
@@ -307,6 +313,8 @@ impl Settings {
                 "island_size" => s.island_size = island_size_value(v.parse::<u32>().unwrap_or(100)),
                 "island_offset" => s.island_offset = v.parse::<i32>().unwrap_or(0).clamp(-ISLAND_OFFSET_MAX, ISLAND_OFFSET_MAX),
                 "pet" => s.pet = v == "1" || v.eq_ignore_ascii_case("true"),
+                "fullscreen_task_reminders" => s.fullscreen_task_reminders = v == "1",
+                "cli_enabled" => s.cli_enabled = v == "1",
                 "pet_expression" => s.pet_expression = crate::pet::PetState::parse(&v).map(|state|state.key().to_owned()),
                 "minimal" => s.minimal = v == "1" || v.eq_ignore_ascii_case("true"),
                 "browser_minimal" => s.browser_minimal = v == "1",
@@ -356,6 +364,7 @@ impl Settings {
                 "water_start" => s.water_start = v.parse::<u32>().unwrap_or(9).min(23),
                 "water_end" => s.water_end = v.parse::<u32>().unwrap_or(22).min(24),
                 "mail_enabled" => s.mail_enabled = v != "0",
+                "outlook_client_id" => s.outlook_client_id = if crate::outlook::valid_client_id(&v){v.to_ascii_lowercase()}else{String::new()},
                 "mail_code" => s.mail_code = v != "0",
                 "mail_code_hide_seconds" => s.mail_code_hide_seconds=v.parse::<u32>().unwrap_or(60).clamp(15,300),
                 "mail_interval" => s.mail_interval = match v.parse::<u32>().unwrap_or(120) { 60 => 60, 300 => 300, _ => 120 },
@@ -392,6 +401,8 @@ impl Settings {
                 ("settings_theme".into(),self.settings_theme.key().into()),
                 ("language".into(),self.language.key().into()),
                 ("pet".into(), if self.pet { "1".to_string() } else { "0".to_string() }),
+                ("fullscreen_task_reminders".into(), (self.fullscreen_task_reminders as u8).to_string()),
+                ("cli_enabled".into(), (self.cli_enabled as u8).to_string()),
                 ("pet_expression".into(),self.pet_expression.as_deref().unwrap_or("auto").into()),
                 ("minimal".into(), if self.minimal { "1".to_string() } else { "0".to_string() }),
                 ("browser_minimal".into(), (self.browser_minimal as u8).to_string()),
@@ -424,6 +435,7 @@ impl Settings {
                 ("water_start".into(), self.water_start.to_string()),
                 ("water_end".into(), self.water_end.to_string()),
                 ("mail_enabled".into(), (self.mail_enabled as u8).to_string()),
+                ("outlook_client_id".into(),self.outlook_client_id.clone()),
                 ("mail_code".into(), (self.mail_code as u8).to_string()),
                 ("mail_code_hide_seconds".into(), self.mail_code_hide_seconds.to_string()),
                 ("mail_interval".into(), self.mail_interval.to_string()),
@@ -439,6 +451,7 @@ impl Settings {
         let mut values:std::collections::BTreeMap<_,_>=self.entries().into_iter().collect();
         let mut canonical=std::collections::BTreeMap::new();
         for (key,value) in patch {
+            if key=="cli_enabled" {return Err("Use Settings > General > Command line interface to enable or disable CLI".into());}
             if !values.contains_key(key) {return Err(format!("Unknown setting: {key}"));}
             if value.contains(['\r','\n','\0']) {return Err(format!("Setting {key} cannot contain line breaks or NUL"));}
             let value=value.trim();
@@ -446,6 +459,7 @@ impl Settings {
                 Ok(v @ (serde_json::Value::Array(_)|serde_json::Value::Object(_)))=>v.to_string(),
                 _=>value.to_owned(),
             };
+            let value=if key=="outlook_client_id"{value.to_ascii_lowercase()}else{value};
             values.insert(key.clone(),value.clone());canonical.insert(key.clone(),value);
         }
         if canonical.get("pet").is_some_and(|v|v=="1") {
@@ -473,6 +487,19 @@ pub struct TodoItem {
     pub repeat: u8,
     /// 每周重复：当天已提醒的日期，第二天自动重新提醒。
     pub reminded_on: Option<String>,
+    /// Full local timestamp, independent of a weekly task's regular time.
+    pub snoozed_until: Option<String>,
+    /// A fullscreen reminder waits for an explicit response, including after restart.
+    pub reminder_pending: bool,
+}
+
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct TodoReminderState {
+    reminded: bool,
+    reminded_on: Option<String>,
+    snoozed_until: Option<String>,
+    pending: bool,
 }
 
 pub const WEEKDAY_NAMES: [&str; 7] = ["一", "二", "三", "四", "五", "六", "日"];
@@ -531,6 +558,8 @@ impl TodoItem {
     /// 勾选 / 取消勾选。
     pub fn toggle(&mut self, today: &str) {
         self.done_on = if self.done_for(today) { None } else { Some(today.to_string()) };
+        self.reminder_pending = false;
+        self.snoozed_until = None;
     }
 
     /// `now` 为 `YYYY-MM-DD HH:MM`。一次性待办按完整时间提醒一次；
@@ -539,13 +568,19 @@ impl TodoItem {
         let Some(due) = self.due.as_deref() else { return false; };
         let today = now.get(..10).unwrap_or("");
         if self.done_for(today) { return false; }
+        if let Some(until) = self.snoozed_until.as_deref() { return until <= now; }
         if !self.is_repeating() { return !self.reminded && due <= now; }
         let (Some(at), Some(clock)) = (due.get(11..16), now.get(11..16)) else { return false; };
         self.scheduled_on(today) && self.reminded_on.as_deref() != Some(today) && at <= clock
     }
 
     pub fn mark_reminded(&mut self, now: &str) {
-        if self.is_repeating() { self.reminded_on = now.get(..10).map(str::to_string); } else { self.reminded = true; }
+        let snoozed=self.snoozed_until.take().is_some();
+        if self.is_repeating() {
+            // A snoozed Friday occurrence delivered after midnight must not consume
+            // Saturday's regular occurrence as well.
+            if !snoozed || self.reminded_on.is_none(){self.reminded_on=now.get(..10).map(str::to_string);}
+        } else { self.reminded = true; }
     }
 
     /// 悬停提示里的提醒说明。
@@ -561,6 +596,18 @@ pub struct TodoList {
 }
 
 impl TodoList {
+    pub fn load_from(path: &Path) -> std::io::Result<Self> {
+        match fs::read_to_string(path) {
+            Ok(text) => Ok(Self::parse(&text)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
+        atomic_write(path, self.serialize().as_bytes())
+    }
+
     pub fn load() -> Self {
         fs::read_to_string(config_dir().join("todo.txt")).map(|text| Self::parse(&text)).unwrap_or_default()
     }
@@ -593,10 +640,13 @@ impl TodoList {
                     continue;
                 }
                 let done = (flag == "x" || repeat != 0) && when != "-";
+                let extra = serde_json::from_str::<TodoReminderState>(&reminded_field).ok();
                 list.items.push(TodoItem {
                     text, due, repeat,
-                    reminded: repeat == 0 && reminded_field == "1",
-                    reminded_on: (repeat != 0 && reminded_field.len() == 10).then_some(reminded_field),
+                    reminded: extra.as_ref().map(|s|s.reminded).unwrap_or(repeat == 0 && reminded_field == "1"),
+                    reminded_on: extra.as_ref().and_then(|s|s.reminded_on.clone()).or_else(||(repeat != 0 && reminded_field.len() == 10).then_some(reminded_field)),
+                    snoozed_until: extra.as_ref().and_then(|s|s.snoozed_until.clone()),
+                    reminder_pending: extra.is_some_and(|s|s.pending),
                     done_on: done.then(|| when.to_string()),
                 });
             }
@@ -625,6 +675,9 @@ impl TodoList {
                 };
                 let text = i.text.replace(['\n', '\r'], " ");
                 let reminded = if i.is_repeating() { i.reminded_on.clone().unwrap_or_else(|| "0".into()) } else { (i.reminded as u8).to_string() };
+                let reminded = if i.reminder_pending || i.snoozed_until.is_some() {
+                    serde_json::to_string(&TodoReminderState{reminded:i.reminded,reminded_on:i.reminded_on.clone(),snoozed_until:i.snoozed_until.clone(),pending:i.reminder_pending}).expect("task reminder metadata")
+                } else {reminded};
                 match &i.due {
                     Some(due) => format!("{state}|@due:{due}|{reminded}|{text}\n"),
                     None => format!("{state}|{text}\n"),
@@ -739,11 +792,21 @@ impl Water {
 
     /// 喝一口：计入总量与当前小时。
     pub fn drink(&mut self, ml: u32, hour: usize) {
+        self.record(ml, hour);
+        self.save();
+    }
+
+    pub(crate) fn record(&mut self, ml: u32, hour: usize) {
         let total=self.drunk_ml.saturating_add(ml).min(self.goal_ml.max(ml).saturating_mul(4));
         let added=total.saturating_sub(self.drunk_ml);
         self.drunk_ml=total;
         self.hours[hour.min(23)]=self.hours[hour.min(23)].saturating_add(added);
-        self.save();
+    }
+
+    pub(crate) fn save_progress_to(&self, path: &Path) -> std::io::Result<()> {
+        let hours = self.hours.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+        atomic_write(path, format!("drunk={}\nrefills={}\nremind={}\nhours={hours}\n",
+            self.drunk_ml, self.refills, self.remind as u8).as_bytes())
     }
 
     pub fn percent(&self) -> f32 {

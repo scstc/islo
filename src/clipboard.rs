@@ -111,14 +111,23 @@ impl History {
 pub struct Shared {
     pub history: Arc<Mutex<History>>,
     pub enabled: Arc<AtomicBool>,
+    pub(crate) private_input: Arc<AtomicBool>,
 }
 
 impl Shared {
     pub fn new(enabled: bool) -> Self {
-        Self { history: Arc::new(Mutex::new(History::load())), enabled: Arc::new(AtomicBool::new(enabled)) }
+        Self { history: Arc::new(Mutex::new(History::load())), enabled: Arc::new(AtomicBool::new(enabled)), private_input:Default::default() }
     }
     pub fn set_enabled(&self, on: bool) { self.enabled.store(on, Ordering::Relaxed); }
-    pub fn is_enabled(&self) -> bool { self.enabled.load(Ordering::Relaxed) }
+    pub fn is_enabled(&self) -> bool { self.enabled.load(Ordering::Relaxed) && !self.private_input.load(Ordering::Relaxed) }
+    pub(crate) fn private_input_active(&self)->bool {self.private_input.load(Ordering::SeqCst)}
+    pub(crate) fn set_private_input(&self,on:bool){let _guard=self.lock();self.private_input.store(on,Ordering::SeqCst);}
+    pub(crate) fn forget_sensitive(&self,value:&str){
+        if value.is_empty(){return;}
+        let mut history=self.lock();let count=history.items.len();
+        history.items.retain(|c|c.text.trim()!=value.trim());
+        if history.items.len()!=count{history.changed();}
+    }
     pub fn lock(&self) -> std::sync::MutexGuard<'_, History> {
         self.history.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -128,7 +137,9 @@ impl Shared {
     pub fn record(&self, text: &str) -> bool {
         if !self.is_enabled() { return false; }
         let at = chrono::Local::now().format("%H:%M").to_string();
-        self.lock().push(text, &at)
+        let mut history=self.lock();
+        if !self.is_enabled(){return false;}
+        history.push(text, &at)
     }
 }
 
@@ -271,7 +282,7 @@ mod tests {
 
     #[test]
     fn history_copy_preserves_order_but_external_copy_promotes() {
-        let shared = Shared { history: Default::default(), enabled: Arc::new(AtomicBool::new(true)) };
+        let shared = Shared { history: Default::default(), enabled: Arc::new(AtomicBool::new(true)),private_input:Default::default() };
         shared.lock().items.clear();
         shared.record("较早的一条");
         shared.record("最近的一条");

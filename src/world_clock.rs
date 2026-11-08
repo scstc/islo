@@ -195,7 +195,7 @@ impl App {
         let count = self.settings.world_clock_cities.len();
         self.world_clock.selected=self.world_clock.selected.min(count.saturating_sub(1));
         self.world_clock.first = self.world_clock.first.min(count.saturating_sub(1) / 3 * 3);
-        let footer_y=crate::app::WORLD_CLOCK_H-44.0;
+        let footer_y=crate::app::WORLD_CLOCK_H-64.0;
         if self.world_clock.globe_view {
             let area=egui::Rect::from_min_size(egui::pos2(45.0,72.0),egui::vec2(174.0,174.0));
             if let Some(index)=self.world_clock.globe.draw(c,area,now,&self.settings.world_clock_cities,self.world_clock.selected,false,locale){self.world_clock.selected=index;}

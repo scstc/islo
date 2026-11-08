@@ -800,6 +800,7 @@ impl App {
             let item=&mut self.todos.items[d.index];
             if item.repeat!=d.repeat{item.done_on=None;}
             item.text=d.text.trim().into();item.due=due.unwrap();item.reminded=false;item.reminded_on=None;item.repeat=d.repeat;
+            item.snoozed_until=None;item.reminder_pending=false;
             self.todos.save();self.say("待办已保存");return;
         }
         self.task_dialog=Some(d);
@@ -1184,6 +1185,15 @@ impl App {
                             setting_row(ui,locale.text("开机启动"),locale.text("登录 Windows 时自动打开islo"),&mut a);
                             if a!=autostart{self.pending.push(Cmd::ToggleAutostart);}
                         });
+                        settings_label(ui,locale.text("命令行与 Agent"));
+                        settings_card(ui,|ui|{
+                            let mut enabled=self.settings.cli_enabled;
+                            setting_row(ui,locale.text("命令行接口"),locale.text("允许终端和 Agent 操作 islo，并注册当前用户的系统命令"),&mut enabled);
+                            if enabled!=self.settings.cli_enabled{self.pending.push(Cmd::SetCliEnabled(enabled));}
+                            settings_hint(ui,locale.text("开启后，重新打开终端即可运行 islo-cli capabilities。"));
+                            if self.settings.cli_enabled && ui.button(locale.text("重新注册命令")).clicked(){self.pending.push(Cmd::SetCliEnabled(true));}
+                            if !self.cli_note.is_empty(){ui.add(egui::Label::new(locale.status(&self.cli_note)).wrap());}
+                        });
                         settings_label(ui,locale.text("岛体外观"));
                         settings_card(ui,|ui|{
                             use crate::model::{self as model,Skin};
@@ -1381,6 +1391,8 @@ impl App {
                             setting_row(ui,locale.text("蓝牙通知"),locale.text("设备连接与断开提醒；关闭后停止蓝牙监听"),&mut self.settings.bluetooth_notifications);
                             ui.separator();
                             setting_row(ui,locale.text("islo提醒"),locale.text("在岛上显示饮水、专注和待办提醒"),&mut self.settings.notifications);
+                            ui.separator();
+                            setting_row(ui,locale.text("全屏待办提醒"),locale.text("待办到点后置顶全屏显示，直到处理；重启后保留未处理提醒"),&mut self.settings.fullscreen_task_reminders);
                         });
                         settings_label(ui,locale.text("微信提醒"));
                         settings_card(ui,|ui|{
@@ -1430,7 +1442,7 @@ impl App {
                         settings_card(ui,|ui|{
                             if self.mail.accounts.is_empty(){ui.label(egui::RichText::new(locale.text("还没有邮箱。在下面添加，保存后自动连接。")).size(12.0).color(settings_color(ctx,Color32::from_gray(195),Color32::from_gray(60))));}
                             let total=self.mail.accounts.len();
-                            let(mut changed,mut remove,mut test)=(false,None,None);
+                            let(mut changed,mut remove,mut test,mut authorize)=(false,None,None,None);
                             for i in 0..total{
                                 let(email,provider)=(self.mail.accounts[i].email.clone(),self.mail.accounts[i].provider);
                                 let status=self.mail.status_of(&email).localized(locale);
@@ -1440,6 +1452,7 @@ impl App {
                                 ui.label(egui::RichText::new(format!("{} · {}",locale.text(provider.label()),status)).size(12.0).color(settings_color(ctx,Color32::from_gray(180),Color32::from_gray(75))));
                                 ui.horizontal(|ui|{
                                     if ui.add_sized([66.0,30.0],egui::Button::new(locale.text("测试"))).clicked(){test=Some(i);}
+                                    if provider==crate::mail::Provider::Outlook && ui.button(locale.text("重新授权")).clicked(){authorize=Some(i);}
                                     if ui.add_sized([66.0,30.0],egui::Button::new(locale.text("删除"))).clicked(){remove=Some(i);}
                                     ui.add_space(8.0);
                                     ui.label(egui::RichText::new(locale.text("启用")).size(12.0).color(settings_color(ctx,Color32::from_gray(190),Color32::from_gray(65))));
@@ -1449,33 +1462,36 @@ impl App {
                             if changed{self.mail_accounts_changed();}
                             if let Some(i)=remove{
                                 let email=self.mail.accounts[i].email.clone();
-                                let credential=self.mail.accounts[i].credential_key();
-                                self.mail.accounts.remove(i);
-                                crate::mail::secrets::delete(&credential);
-                                self.mail.status.remove(&email.to_ascii_lowercase());
-                                self.mail.note=crate::i18n::Locale::ZhCn.format("{0}：已移除，凭据已从系统凭据管理器删除",&[("0",format!("{}",email))]);
-                                self.mail_accounts_changed();
+                                match crate::agent_mail::remove(self,&email,&crate::model::config_dir()) {
+                                    Ok(result) if result["credential_removed"]==true=>self.mail.note=crate::i18n::Locale::ZhCn.format("{0}：已移除，凭据已从系统凭据管理器删除",&[("0",email)]),
+                                    Ok(_)=>self.mail.note="账号已移除，但系统凭据未能清理，请重试".into(),
+                                    Err(error)=>self.mail.note=error,
+                                }
                             }
                             if let Some(i)=test{
                                 let account=self.mail.accounts[i].clone();
-                                match crate::mail::secrets::load(&account.credential_key()){
+                                match if account.provider==crate::mail::Provider::Outlook {Ok(String::new())}else{crate::mail::secrets::load(&account.credential_key())}{
                                     Ok(pass)=>{self.mail.testing=Some(account.email.clone());self.mail.note=crate::i18n::Locale::ZhCn.format("{0}：正在测试连接…",&[("0",format!("{}",account.email))]);self.pending.push(Cmd::MailTest(account,pass));}
                                     Err(e)=>self.mail.note=format!("{}：{e}",account.email),
                                 }
+                            }
+                            if let Some(i)=authorize {
+                                let email=self.mail.accounts[i].email.clone();
+                                if let Err(error)=crate::agent_mail::configure_outlook_gui(self,email){self.mail.note=error;}
                             }
                         });
                         settings_label(ui,locale.text("添加邮箱"));
                         settings_card(ui,|ui|{
                             settings_control_row(ui,locale.text("邮箱服务"),56.0,|ui|{
                                 egui::ComboBox::from_id_salt("mail-provider").width(160.0).selected_text(locale.text(self.mail.form.provider.label())).show_ui(ui,|ui|{
-                                    for p in crate::mail::Provider::ALL{if ui.selectable_label(self.mail.form.provider==p,locale.text(p.label())).clicked(){self.mail.form.provider=p;}}
+                                    for p in crate::mail::Provider::ALL{if ui.selectable_label(self.mail.form.provider==p,locale.text(p.label())).clicked(){self.mail.form.provider=p;if p==crate::mail::Provider::Outlook{self.mail.form.password.clear();}}}
                                 }).response
                             });
                             ui.add_space(5.0);
-                            ui.label(egui::RichText::new(locale.text("获取授权码或专用密码")).size(12.5).strong());
+                            ui.label(egui::RichText::new(locale.text(if self.mail.form.provider==crate::mail::Provider::Outlook{"Outlook 网页授权"}else{"获取授权码或专用密码"})).size(12.5).strong());
                             ui.add(egui::Label::new(egui::RichText::new(locale.text(self.mail.form.provider.hint())).size(12.0).color(settings_color(ctx,Color32::from_gray(200),Color32::from_gray(55)))).wrap());
                             let (label,url)=self.mail.form.provider.setup_link();
-                            if !url.is_empty() && ui.link(locale.text(label)).clicked(){self.pending.push(Cmd::OpenUrl(url.into()));}
+                            if self.mail.form.provider!=crate::mail::Provider::Outlook && !url.is_empty() && ui.link(locale.text(label)).clicked(){self.pending.push(Cmd::OpenUrl(url.into()));}
                             ui.add_space(8.0);
                             if self.mail.form.provider==crate::mail::Provider::Custom {
                                 settings_control_row(ui,locale.text("IMAP 主机"),80.0,|ui|{ui.add(egui::TextEdit::singleline(&mut self.mail.form.custom.host).desired_width(ui.available_width()))});
@@ -1487,6 +1503,24 @@ impl App {
                             settings_control_row(ui,locale.text("邮箱"),mail_label_width,|ui|{
                                 ui.add_sized([input_width,30.0],egui::TextEdit::singleline(&mut self.mail.form.email).vertical_align(egui::Align::Center).hint_text(locale.text("输入邮箱地址")))
                             });
+                            if self.mail.form.provider==crate::mail::Provider::Outlook {
+                                ui.collapsing(locale.text("Microsoft 应用配置（开发者）"),|ui|{
+                                    settings_control_row(ui,"Client ID",80.0,|ui|{
+                                        ui.add(egui::TextEdit::singleline(&mut self.settings.outlook_client_id).char_limit(36).desired_width(ui.available_width()))
+                                    });
+                                    ui.label(locale.text("发行方注册桌面应用后配置此公开 ID；无需客户端密钥。"));
+                                    if ui.link(locale.text("Microsoft 应用注册说明")).clicked(){self.pending.push(Cmd::OpenUrl(crate::outlook::REGISTRATION_HELP.into()));}
+                                });
+                                if ui.button(locale.text("登录并连接 Outlook")).clicked(){
+                                    let email=self.mail.form.email.trim().to_string();
+                                    self.settings.outlook_client_id=self.settings.outlook_client_id.trim().to_ascii_lowercase();
+                                    match crate::agent_mail::configure_outlook_gui(self,email) {
+                                        Ok(result) if result["status"]=="needs_metadata"=>self.mail.note="请先配置产品的 Microsoft 应用客户端 ID".into(),
+                                        Ok(_)=>self.mail.note="请在浏览器中完成微软授权".into(),
+                                        Err(error)=>self.mail.note=error,
+                                    }
+                                }
+                            }else{
                             settings_control_row(ui,locale.text("授权码"),mail_label_width,|ui|{
                                 let field=ui.add_sized([input_width,30.0],egui::TextEdit::singleline(&mut self.mail.form.password).vertical_align(egui::Align::Center).password(!self.mail.form.show).hint_text(locale.text("输入邮箱授权码")));
                                 if ui.add_sized([48.0,30.0],egui::Button::new(if self.mail.form.show{locale.text("隐藏")}else{locale.text("显示")})).clicked(){self.mail.form.show=!self.mail.form.show;}
@@ -1527,6 +1561,7 @@ impl App {
                             });
                             ui.label(egui::RichText::new(locale.text("授权码存储在 Windows 凭据管理器中。")).size(12.0).color(settings_color(ctx,Color32::from_gray(180),Color32::from_gray(75))));
                             ui.label(egui::RichText::new(locale.text("图片中的验证码请在邮箱查看。")).size(12.0).color(settings_color(ctx,Color32::from_gray(180),Color32::from_gray(75))));
+                            }
                             if !self.mail.note.is_empty(){ui.add_space(3.0);ui.add(egui::Label::new(egui::RichText::new(locale.status(&self.mail.note)).size(12.0).color(settings_color(ctx,Color32::from_gray(180),Color32::from_gray(75)))).wrap());}
                         });
                     }

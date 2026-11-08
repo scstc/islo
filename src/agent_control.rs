@@ -15,6 +15,8 @@ const MAX_REQUEST_BYTES: u64 = 64 * 1024;
 #[serde(deny_unknown_fields)]
 struct Request {
     patch: Option<Patch>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command: Option<crate::agent_commands::Command>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,10 +27,23 @@ pub struct Reply {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<Patch>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
 impl Reply {
+    fn command(result: Result<serde_json::Value, String>, backend: &str) -> Self {
+        Self {
+            ok: result.is_ok(),
+            version: env!("ISLO_APP_VERSION").into(),
+            backend: backend.into(),
+            settings: None,
+            error: result.as_ref().err().cloned(),
+            result: result.ok(),
+        }
+    }
+
     fn result(result: Result<Settings, String>, backend: &str) -> Self {
         match result {
             Ok(settings) => Self {
@@ -36,6 +51,7 @@ impl Reply {
                 version: env!("ISLO_APP_VERSION").into(),
                 backend: backend.into(),
                 settings: Some(settings.entries().into_iter().collect()),
+                result: None,
                 error: None,
             },
             Err(error) => Self {
@@ -43,6 +59,7 @@ impl Reply {
                 version: env!("ISLO_APP_VERSION").into(),
                 backend: backend.into(),
                 settings: None,
+                result: None,
                 error: Some(error),
             },
         }
@@ -83,11 +100,92 @@ pub fn offline(directory: &Path, patch: Option<&Patch>) -> Result<Reply, String>
 pub fn execute(directory: &Path, patch: Option<Patch>, isolated: bool) -> Result<Reply, String> {
     #[cfg(windows)]
     if !isolated && crate::tray::instance_running() {
-        return running(directory, Request { patch });
+        return running(
+            directory,
+            Request {
+                patch,
+                command: None,
+            },
+        );
     }
     #[cfg(not(windows))]
     let _ = isolated;
+    if !isolated {
+        require_enabled(directory)?;
+    }
     offline(directory, patch.as_ref())
+}
+
+fn require_enabled(directory: &Path) -> Result<(), String> {
+    let text = fs::read_to_string(directory.join("settings.txt"))
+        .map_err(|e| format!("Cannot read CLI preference: {e}"))?;
+    if !Settings::parse(&text).cli_enabled {
+        return Err(
+            "CLI is disabled. Enable Settings > General > Command line interface in islo.".into(),
+        );
+    }
+    Ok(())
+}
+
+pub fn execute_command(
+    directory: &Path,
+    command: crate::agent_commands::Command,
+    isolated: bool,
+) -> Result<Reply, String> {
+    #[cfg(windows)]
+    if !isolated && crate::tray::instance_running() {
+        return running(
+            directory,
+            Request {
+                patch: None,
+                command: Some(command),
+            },
+        );
+    }
+    #[cfg(not(windows))]
+    let _ = isolated;
+    if !isolated {
+        require_enabled(directory)?;
+    }
+    Ok(Reply::command(
+        crate::agent_commands::offline(directory, &command),
+        "offline",
+    ))
+}
+
+fn dispatch(app: &mut crate::app::App, request: Request, directory: &Path) -> Reply {
+    if !app.settings.cli_enabled {
+        return Reply::command(
+            Err(
+                "CLI is disabled. Enable Settings > General > Command line interface in islo."
+                    .into(),
+            ),
+            "running-app",
+        );
+    }
+    if let Some(command) = request.command {
+        if request.patch.is_some() {
+            return Reply::command(
+                Err("Cannot combine settings patch with command".into()),
+                "running-app",
+            );
+        }
+        return Reply::command(
+            crate::agent_commands::live(app, &command, directory),
+            "running-app",
+        );
+    }
+    let result = changed(
+        &app.settings,
+        request.patch.as_ref(),
+        &directory.join("settings.txt"),
+    );
+    if let Ok(next) = &result {
+        if request.patch.is_some() {
+            app.apply_agent_settings(next.clone());
+        }
+    }
+    Reply::result(result, "running-app")
 }
 
 #[cfg(windows)]
@@ -132,7 +230,7 @@ fn running(directory: &Path, request: Request) -> Result<Reply, String> {
     }
     let _ = fs::remove_file(&request_path);
     Err(
-        "Timed out waiting for the GUI. The result is unknown; query settings before retrying."
+        "Timed out waiting for the GUI. The result is unknown; query the affected data before retrying."
             .into(),
     )
 }
@@ -170,17 +268,12 @@ pub fn serve(app: &mut crate::app::App) -> std::io::Result<()> {
             let request: Request =
                 serde_json::from_slice(&fs::read(&path).map_err(|e| e.to_string())?)
                     .map_err(|e| e.to_string())?;
-            let next = changed(
-                &app.settings,
-                request.patch.as_ref(),
-                &directory.join("settings.txt"),
-            )?;
-            if request.patch.is_some() {
-                app.apply_agent_settings(next.clone());
-            }
-            Ok(next)
+            Ok(request)
         })();
-        let reply = Reply::result(result, "running-app");
+        let reply = match result {
+            Ok(request) => dispatch(app, request, &directory),
+            Err(error) => Reply::command(Err(error), "running-app"),
+        };
         model::atomic_write(
             &root.join(format!("res-{id}.json")),
             &serde_json::to_vec(&reply)?,

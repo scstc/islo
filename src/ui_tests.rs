@@ -5,6 +5,163 @@ use std::sync::Mutex;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+#[test]
+fn agent_mail_local_password_input_is_masked_and_cancellation_restores_clipboard_capture(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();h.app.settings.cli_enabled=true;h.app.settings.language=crate::i18n::Language::English;
+    h.app.clipboard.record("SENSITIVE_TEST_VALUE");
+    let root=crate::model::config_dir();
+    let missing=crate::agent_mail::configure(&mut h.app,Default::default(),&root).unwrap();
+    assert_eq!(missing["status"],"needs_metadata");assert!(missing.get("id").is_none());
+    assert!(!h.app.agent_mail.is_open(),"Ordinary missing metadata must stay in the Agent conversation, without a local form");
+    assert!(h.app.clipboard.is_enabled());
+    let request=crate::agent_mail::configure(&mut h.app,crate::agent_mail::Change{email:Some("sample@example.test".into()),provider:Some("qq".into()),..Default::default()},&root).unwrap();
+    assert!(!h.app.clipboard.is_enabled());h.app.clipboard.set_enabled(true);
+    assert!(crate::agent_input::begin(&h.app.clipboard).is_err(),"All CLI domains share one secret-input reservation");
+    assert!(!h.app.clipboard.record("Do not record while entering credentials"));
+    crate::agent_mail::enter_test_password(&mut h.app,"SENSITIVE_TEST_VALUE");
+    assert!(!crate::agent_mail::input_status(&mut h.app,request["id"].as_str().unwrap()).unwrap().to_string().contains("SENSITIVE_TEST_VALUE"));
+    let captured=std::sync::Arc::new(Mutex::new(None));let output=captured.clone();h.ctx.set_embed_viewports(false);
+    egui::Context::set_immediate_viewport_renderer(move|ctx,mut viewport|{
+        assert_eq!(viewport.builder.inner_size,Some(egui::vec2(420.0,260.0)));
+        assert_eq!(viewport.builder.resizable,Some(false));
+        let raw=egui::RawInput{viewport_id:viewport.ids.this,viewports:std::iter::once((viewport.ids.this,egui::ViewportInfo::default())).collect(),screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(420.0,260.0))),..Default::default()};
+        *output.lock().unwrap()=Some(ctx.run(raw,|ctx|(viewport.viewport_ui_cb)(ctx)));
+    });
+    for _ in 0..3{let _=h.ctx.run(Default::default(),|ctx|h.app.agent_mail_input_ui(ctx));}
+    let shapes=captured.lock().unwrap().take().unwrap().shapes;
+    for label in ["Email address","Mail provider","IMAP host","Save configuration"] {
+        assert!(!shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Text(t) if t.galley.text()==label)),"Secret prompts must not contain ordinary configuration fields");
+    }
+    assert!(!shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Text(t) if t.galley.text().contains("SENSITIVE_TEST_VALUE"))),"Password text must never be painted as plain text");
+    for shape in shapes{if let egui::Shape::Text(text)=shape.shape{assert!(!text.galley.text().chars().any(|c|('\u{4e00}'..='\u{9fff}').contains(&c)),"Untranslated input UI: {}",text.galley.text());}}
+    let cancelled=crate::agent_mail::cancel(&mut h.app,request["id"].as_str().unwrap()).unwrap();assert_eq!(cancelled["status"],"cancelled");
+    assert!(h.app.clipboard.is_enabled());assert!(h.app.clipboard.lock().items.iter().all(|c|c.text!="SENSITIVE_TEST_VALUE"));
+    assert!(!root.join("mail-accounts.json").exists(),"Cancelled input must not add a mailbox");
+}
+
+#[test]
+fn outlook_cli_requires_public_app_metadata_and_keeps_browser_secrets_local(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();h.app.settings.cli_enabled=true;
+    h.app.settings.outlook_client_id.clear();
+    let root=crate::model::config_dir();let request=crate::agent_mail::Change{email:Some("synthetic-outlook@example.test".into()),provider:Some("outlook".into()),..Default::default()};
+    let missing=crate::agent_mail::configure(&mut h.app,request.clone(),&root).unwrap();assert_eq!(missing["status"],"needs_metadata");assert_eq!(missing["required_fields"][0]["key"],"outlook_client_id");assert!(!h.app.agent_mail.is_open());
+    h.app.settings.outlook_client_id="12345678-1234-1234-1234-123456789abc".into();
+    let started=crate::agent_mail::configure(&mut h.app,request,&root).unwrap();assert_eq!(started["status"],"awaiting_authorization");
+    assert!(h.app.clipboard.private_input_active());assert!(!h.app.clipboard.is_enabled());
+    for private in ["code_challenge","code_verifier","access_token","refresh_token","login.microsoftonline.com"]{assert!(!started.to_string().contains(private));}
+    assert_eq!(h.app.pending.iter().filter(|cmd|matches!(cmd,crate::app::Cmd::OpenUrl(_))).count(),1);
+    let cancelled=crate::agent_mail::cancel(&mut h.app,started["id"].as_str().unwrap()).unwrap();assert_eq!(cancelled["status"],"cancelled");
+    assert!(!h.app.agent_mail.is_open());assert!(!h.app.clipboard.private_input_active());assert!(h.app.mail.accounts.is_empty());assert!(!root.join("mail-accounts.json").exists());
+    assert!(!h.app.pending.iter().any(|cmd|matches!(cmd,crate::app::Cmd::OpenUrl(_))),"Cancellation must also remove an authorization link not yet opened");
+    let next=crate::agent_mail::configure(&mut h.app,crate::agent_mail::Change{email:Some("synthetic-outlook@example.test".into()),provider:Some("outlook".into()),..Default::default()},&root).unwrap();
+    h.app.settings.cli_enabled=false;let _=h.ctx.run(Default::default(),|ctx|h.app.agent_mail_input_ui(ctx));
+    assert_eq!(crate::agent_mail::input_status(&mut h.app,next["id"].as_str().unwrap()).unwrap()["status"],"cancelled");
+    assert!(!h.app.clipboard.private_input_active());assert!(!h.app.pending.iter().any(|cmd|matches!(cmd,crate::app::Cmd::OpenUrl(_))));
+}
+
+#[test]
+#[ignore="Export Outlook settings and consent-wait UI with synthetic data"]
+fn outlook_layout_gallery(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let dest=std::path::PathBuf::from(std::env::var_os("ISLO_OUTLOOK_PREVIEW_DIR").expect("preview directory"));std::fs::create_dir_all(&dest).unwrap();
+    for (language,lang) in [(crate::i18n::Language::Chinese,"zh"),(crate::i18n::Language::English,"en")] {for dark in [false,true] {for auth in [false,true] {
+        let mut h=H::new();h.app.settings.language=language;h.app.settings.settings_theme=if dark{crate::settings_theme::SettingsTheme::Dark}else{crate::settings_theme::SettingsTheme::Light};h.app.settings.outlook_client_id="12345678-1234-1234-1234-123456789abc".into();
+        h.app.mail.form.provider=crate::mail::Provider::Outlook;h.app.mail.form.email="sample@outlook.com".into();
+        let id=if auth {Some(crate::agent_mail::configure_outlook_gui(&mut h.app,"sample@outlook.com".into()).unwrap()["id"].as_str().unwrap().to_string())}else{h.app.settings_tab=7;h.app.open_settings();None};
+        let (width,height)=if auth{(420,230)}else{(690,900)};let size=egui::vec2(width as f32,height as f32);h.ctx.set_embed_viewports(false);
+        let output=std::sync::Arc::new(Mutex::new(None));let capture=output.clone();
+        egui::Context::set_immediate_viewport_renderer(move|ctx,mut viewport|{
+            let raw=egui::RawInput{viewport_id:viewport.ids.this,screen_rect:Some(Rect::from_min_size(Pos2::ZERO,size)),viewports:std::iter::once((viewport.ids.this,egui::ViewportInfo::default())).collect(),..Default::default()};
+            *capture.lock().unwrap()=Some(ctx.run(raw,|ctx|(viewport.viewport_ui_cb)(ctx)));
+        });
+        let mut raster=crate::preview_raster::Raster::new(width,height);
+        for frame in 0..4 {
+            let root=h.ctx.run(Default::default(),|ctx|if auth{h.app.agent_mail_input_ui(ctx)}else{h.app.settings_ui(ctx,false)});
+            let child=output.lock().unwrap().take().unwrap();raster.update_textures(&root.textures_delta);raster.update_textures(&child.textures_delta);
+            if frame==3 {raster.buf.fill([0.0,0.0,0.0,1.0]);raster.draw(&h.ctx.tessellate(child.shapes,child.pixels_per_point),child.pixels_per_point);}
+        }
+        if let Some(id)=id {assert_eq!(crate::agent_mail::input_status(&mut h.app,&id).unwrap()["status"],"awaiting_authorization");crate::agent_mail::cancel(&mut h.app,&id).unwrap();}
+        let mut rgba=Vec::new();raster.to_rgba8(&mut rgba);image::save_buffer(dest.join(format!("outlook-{lang}-{}-{}.png",if dark{"dark"}else{"light"},if auth{"authorization"}else{"settings"})),&rgba,width as u32,height as u32,image::ColorType::Rgba8).unwrap();
+    }}}
+}
+
+#[test]
+#[ignore="Export the shared prompt using synthetic values only"]
+fn agent_secret_prompt_gallery(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    let dest=std::path::PathBuf::from(std::env::var_os("ISLO_SECRET_PREVIEW_DIR").expect("preview output directory"));std::fs::create_dir_all(&dest).unwrap();
+    for (language,lang) in [(crate::i18n::Language::Chinese,"zh"),(crate::i18n::Language::English,"en")] {
+        for dark in [false,true] {for (key,label) in [("mail","邮箱授权码"),("password","应用专用密码"),("key","API Key")] {
+            let h=H::new();h.ctx.set_embed_viewports(false);
+            let output=std::sync::Arc::new(Mutex::new(None));let capture=output.clone();
+            egui::Context::set_immediate_viewport_renderer(move|ctx,mut viewport|{
+                let raw=egui::RawInput{viewport_id:viewport.ids.this,screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(420.0,260.0))),viewports:std::iter::once((viewport.ids.this,egui::ViewportInfo::default())).collect(),..Default::default()};
+                *capture.lock().unwrap()=Some(ctx.run(raw,|ctx|(viewport.viewport_ui_cb)(ctx)));
+            });
+            let mut value="synthetic-secret".to_string();let mut raster=crate::preview_raster::Raster::new(420,260);
+            let locale=language.resolve();
+            for frame in 0..3 {
+                let root=h.ctx.run(Default::default(),|ctx|{crate::agent_input::show(ctx,locale,dark,crate::agent_input::SecretPrompt{label:locale.text(label),subject:"sample@example.test",destination:"example.test:993 · TLS",value:&mut value,error:"",first:frame==0});});
+                let child=output.lock().unwrap().take().unwrap();raster.update_textures(&root.textures_delta);raster.update_textures(&child.textures_delta);
+                if frame==2 {raster.buf.fill([0.0,0.0,0.0,1.0]);raster.draw(&h.ctx.tessellate(child.shapes,child.pixels_per_point),child.pixels_per_point);}
+            }
+            let mut rgba=Vec::new();raster.to_rgba8(&mut rgba);image::save_buffer(dest.join(format!("secret-{lang}-{}-{key}.png",if dark{"dark"}else{"light"})),&rgba,420,260,image::ColorType::Rgba8).unwrap();
+        }}
+    }
+}
+
+#[test]
+fn fullscreen_reminders_can_be_inspected_and_completed_by_agents() {
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();
+    use crate::agent_commands::{live,Command};
+    h.app.settings.fullscreen_task_reminders=true;
+    h.app.todos.items.push(crate::model::TodoItem{due:Some("2026-01-01 00:00".into()),reminder_pending:true,reminded:true,..crate::model::TodoItem::new("Agent completion")});
+    let root=crate::model::config_dir();std::fs::create_dir_all(&root).unwrap();
+    let rows=live(&mut h.app,&Command::TasksList{limit:None,offset:None},&root).unwrap();
+    assert_eq!(rows["items"][0]["reminder_pending"],true);
+    assert_eq!(live(&mut h.app,&Command::NotificationsStatus{},&root).unwrap()["fullscreen_pending"],1);
+    live(&mut h.app,&Command::TasksComplete{reference:rows["items"][0]["reference"].as_str().unwrap().into()},&root).unwrap();
+    assert!(!h.app.todos.items[0].reminder_pending);
+    assert!(!crate::model::TodoList::load().items[0].reminder_pending);
+}
+
+#[test]
+fn fullscreen_reminders_keep_pending_state_and_render_independently_of_island_hiding() {
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    for language in [crate::i18n::Language::Chinese,crate::i18n::Language::English] {
+        let mut h=H::new();h.app.settings.language=language;h.app.settings.notifications=true;
+        h.app.settings.fullscreen_task_reminders=true;h.app.settings.hide_fullscreen=true;
+        h.app.todos.items.push(crate::model::TodoItem{text:"报告 Report".into(),due:Some("2026-01-01 00:00".into()),reminder_pending:true,reminded:true,..Default::default()});
+        h.app.todos.save();h.ctx.set_embed_viewports(false);
+        let output=std::sync::Arc::new(Mutex::new(None));let capture=output.clone();
+        egui::Context::set_immediate_viewport_renderer(move|ctx,mut viewport|{
+            assert_eq!(viewport.builder.fullscreen,Some(true));
+            assert_eq!(viewport.builder.window_level,Some(egui::WindowLevel::AlwaysOnTop));
+            let raw=egui::RawInput{viewport_id:viewport.ids.this,screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(1280.0,720.0))),viewports:std::iter::once((viewport.ids.this,egui::ViewportInfo::default())).collect(),..Default::default()};
+            *capture.lock().unwrap()=Some(ctx.run(raw,|ctx|(viewport.viewport_ui_cb)(ctx)));
+        });
+        let preview=std::env::var_os("ISLO_REMINDER_PREVIEW_DIR").map(std::path::PathBuf::from);
+        let mut raster=preview.as_ref().map(|_|crate::preview_raster::Raster::new(1280,720));
+        let mut shapes=vec![];
+        for frame in 0..3{
+            let root=h.ctx.run(Default::default(),|ctx|h.app.task_reminder_ui(ctx));
+            let child=output.lock().unwrap().take().unwrap();
+            if let Some(raster)=raster.as_mut(){raster.update_textures(&root.textures_delta);raster.update_textures(&child.textures_delta);
+                if frame==2{raster.buf.fill([0.0,0.0,0.0,1.0]);raster.draw(&h.ctx.tessellate(child.shapes.clone(),child.pixels_per_point),child.pixels_per_point);}
+            }
+            shapes=child.shapes;
+        }
+        if let (Some(dir),Some(raster))=(preview,raster){std::fs::create_dir_all(&dir).unwrap();let mut bytes=vec![];raster.to_rgba8(&mut bytes);image::RgbaImage::from_raw(1280,720,bytes).unwrap().save(dir.join(if language==crate::i18n::Language::English{"reminder-en.png"}else{"reminder-zh.png"})).unwrap();}
+        for label in ["报告 Report",h.app.settings.locale().text("完成待办"),h.app.settings.locale().text("10 分钟后提醒"),h.app.settings.locale().text("暂不处理")] {
+            assert!(shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Text(t) if t.galley.text()==label)),"Missing full screen control: {label}");
+        }
+        for shape in shapes {if let egui::Shape::Text(text)=shape.shape{assert!(text.visual_bounding_rect().right()<=1280.0,"Fullscreen text overflow: {}",text.galley.text());}}
+        // Time alone does not acknowledge a fullscreen reminder.
+        h.t+=600.0;h.frame(vec![]);
+        assert!(h.app.todos.items[0].reminder_pending);
+        assert!(crate::model::TodoList::load().items[0].reminder_pending);
+    }
+}
+
 fn i18n_settings_frame(h:&mut H,width:f32)->egui::FullOutput {
     let output=std::sync::Arc::new(Mutex::new(None));let capture=output.clone();
     egui::Context::set_immediate_viewport_renderer(move|ctx,mut viewport|{
@@ -141,6 +298,7 @@ fn i18n_preserves_user_tasks_mail_and_external_notification_content(){
 #[test]
 fn agent_settings_use_live_state_and_invalid_batches_do_not_change_it() {
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();
+    h.app.settings.cli_enabled=true;
     let root=crate::model::config_dir();let commands=root.join("agent-control");std::fs::create_dir_all(&commands).unwrap();
     h.app.settings.focus_minutes=40;
     let request=commands.join(format!("req-{:048x}.json",1));
@@ -160,6 +318,56 @@ fn agent_settings_use_live_state_and_invalid_batches_do_not_change_it() {
     crate::agent_control::serve(&mut h.app).unwrap();
     let reply:crate::agent_control::Reply=serde_json::from_slice(&std::fs::read(commands.join(format!("res-{:048x}.json",3))).unwrap()).unwrap();
     assert_eq!(reply.settings.unwrap().get("sound").map(String::as_str),Some("1"),"查询必须返回正在运行的状态");
+}
+
+#[test]
+fn agent_commands_preserve_live_edits_and_report_runtime_outcomes() {
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();
+    use crate::agent_commands::{live,Command};
+    let root=crate::model::config_dir();std::fs::create_dir_all(&root).unwrap();
+    h.app.todos.items=vec![crate::model::TodoItem::new("Unsaved live task")];
+    let add=Command::TasksAdd{text:"Agent task".into(),due:None,repeat:None};
+    h.app.adding=true;assert!(live(&mut h.app,&add,&root).is_err());assert_eq!(h.app.todos.items.len(),1);
+    h.app.adding=false;let row=live(&mut h.app,&add,&root).unwrap();assert_eq!(h.app.todos.items[0].text,"Unsaved live task");
+    assert_eq!(crate::model::TodoList::load().items.len(),2,"Persist live state, never replace it with an old disk snapshot");
+    let update=Command::TasksUpdate{reference:row["reference"].as_str().unwrap().into(),text:Some("Changed".into()),due:None,repeat:None};
+    // Failed persistence leaves GUI memory untouched.
+    let bad=root.join("bad");std::fs::create_dir_all(bad.join("todo.txt")).unwrap();
+    assert!(live(&mut h.app,&update,&bad).is_err());assert_eq!(h.app.todos.items[1].text,"Agent task");
+    live(&mut h.app,&Command::FocusStart{},&root).unwrap();assert!(h.app.pomo.running);
+    live(&mut h.app,&Command::FocusPause{},&root).unwrap();assert!(!h.app.pomo.running);
+    live(&mut h.app,&Command::FocusPhase{phase:"rest".into()},&root).unwrap();assert!(h.app.pomo.phase==crate::app::Phase::Rest);
+    assert!(live(&mut h.app,&Command::FocusPhase{phase:"typo".into()},&root).is_err());
+    h.app.water.start_day=chrono::Local::now().format("%Y-%m-%d").to_string();let original=h.app.water.drunk_ml;
+    std::fs::create_dir_all(bad.join("water-extra.txt")).unwrap();
+    assert!(live(&mut h.app,&Command::WaterDrink{ml:250},&bad).is_err());assert_eq!(h.app.water.drunk_ml,original);assert!(h.app.last_drink.is_none());
+    live(&mut h.app,&Command::WaterDrink{ml:250},&root).unwrap();assert_eq!(h.app.water.drunk_ml,original+250);
+    live(&mut h.app,&Command::WaterUndo{},&root).unwrap();assert_eq!(h.app.water.drunk_ml,original);assert!(live(&mut h.app,&Command::WaterUndo{},&root).is_err());
+    h.app.media.title="Song".into();let before=h.app.media.playing;
+    let reply=live(&mut h.app,&Command::MusicToggle{},&root).unwrap();assert_eq!(reply["accepted"],true);assert_eq!(reply["completed"],false);assert_eq!(h.app.media.playing,before);
+    assert!(h.app.pending.contains(&crate::app::Cmd::Media(crate::smtc::Transport::Toggle)));
+    h.app.mail.form.password="SECRET_SENTINEL".into();h.app.calendar.test_password="SECRET_SENTINEL".into();h.app.quota.gemini_cookie="SECRET_SENTINEL".into();
+    for command in [Command::MailStatus{},Command::CalendarStatus{},Command::QuotaStatus{},Command::NotificationsStatus{},Command::AppStatus{}] {
+        assert!(!live(&mut h.app,&command,&root).unwrap().to_string().contains("SECRET_SENTINEL"));
+    }
+}
+
+#[test]
+fn agent_transport_enforces_the_toggle_and_rejects_mixed_requests() {
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();
+    let root=crate::model::config_dir();let commands=root.join("agent-control");std::fs::create_dir_all(&commands).unwrap();
+    let mut send=|id:u32,body:serde_json::Value,enabled:bool|{
+        h.app.settings.cli_enabled=enabled;
+        std::fs::write(commands.join(format!("req-{id:048x}.json")),body.to_string()).unwrap();
+        crate::agent_control::serve(&mut h.app).unwrap();
+        serde_json::from_slice::<crate::agent_control::Reply>(&std::fs::read(commands.join(format!("res-{id:048x}.json"))).unwrap()).unwrap()
+    };
+    let add=serde_json::json!({"command":{"op":"tasks.add","text":"Agent task"}});
+    assert!(!send(1,add.clone(),false).ok,"A disabled interface must refuse live commands");
+    assert!(!send(2,serde_json::json!({"patch":{"sound":"1"},"command":{"op":"tasks.add","text":"must not add"}}),true).ok);
+    assert!(!send(3,serde_json::json!({"command":{"op":"tasks.add","text":"must not add","typo":true}}),true).ok);
+    assert!(send(4,add,true).ok);assert_eq!(h.app.todos.items.len(),1,"Rejected requests must not apply even part of a mutation");
+    assert_eq!(h.app.todos.items[0].text,"Agent task");
 }
 
 #[test]
@@ -703,8 +911,8 @@ fn calendar_hides_ended_events_and_keeps_all_day_out_of_featured_card() {
     let contains=|h:&H,text:&str|h.shapes.iter().any(|shape|matches!(&shape.shape,egui::Shape::Text(t) if t.galley.text()==text));
     assert!(!contains(&h,"过去的安排"));assert!(contains(&h,"全天安排"));
     assert!(h.shapes.iter().any(|shape|matches!(&shape.shape,egui::Shape::Text(t) if t.galley.text()=="11:00" && t.galley.job.sections[0].format.font_id.size>=23.0)));
-    h.click(H::local(270.0,43.0));h.frame(vec![]);assert!(contains(&h,"过去的安排"));
-    h.click(H::local(270.0,43.0));h.frame(vec![]);assert!(!contains(&h,"过去的安排"));
+    h.click(H::local(239.0,216.0));h.frame(vec![]);assert!(contains(&h,"过去的安排"));
+    h.click(H::local(239.0,216.0));h.frame(vec![]);assert!(!contains(&h,"过去的安排"));
 }
 
 #[test]
@@ -2729,21 +2937,52 @@ fn focus_page_selects_stopped_phases_and_starts_only_from_play(){
     h.app.settings.focus_minutes=30;h.app.settings.rest_minutes=7;
     h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);h.app.go(1,1.0);h.hover(H::local(260.0,70.0),1.0);
     assert!(h.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Text(t) if t.galley.text()=="休息")));
-    h.click(H::local(336.0,106.5));
+    h.click(H::local(321.5,56.5));
     assert!(h.app.pomo.phase==Phase::Rest && !h.app.pomo.running);
     assert_eq!(h.app.pomo.remaining,420.0,"休息采用设置中的时长");
-    h.click(H::local(264.0,106.5));assert!(h.app.pomo.running);
-    h.click(H::local(264.0,106.5));assert!(!h.app.pomo.running);
+    h.click(H::local(253.0,99.0));assert!(h.app.pomo.running);
+    h.click(H::local(253.0,99.0));assert!(!h.app.pomo.running);
     let paused=h.app.pomo.remaining;for _ in 0..30 {h.frame(vec![]);}assert_eq!(h.app.pomo.remaining,paused);
-    h.click(H::local(264.0,106.5));assert!(h.app.pomo.running && h.app.pomo.phase==Phase::Rest);
-    h.click(H::local(336.0,106.5));assert!(h.app.pomo.running,"点击当前阶段不重置计时");
-    h.click(H::local(192.0,106.5));assert!(h.app.pomo.phase==Phase::Focus && !h.app.pomo.running);
+    h.click(H::local(253.0,99.0));assert!(h.app.pomo.running && h.app.pomo.phase==Phase::Rest);
+    h.click(H::local(321.5,56.5));assert!(h.app.pomo.running,"点击当前阶段不重置计时");
+    h.click(H::local(228.5,56.5));assert!(h.app.pomo.phase==Phase::Focus && !h.app.pomo.running);
     assert_eq!(h.app.pomo.remaining,1800.0);
-    h.click(H::local(264.0,106.5));assert!(h.app.pomo.running);
-    h.click(H::local(336.0,106.5));assert!(h.app.pomo.phase==Phase::Rest && !h.app.pomo.running);
-    h.click(H::local(264.0,106.5));assert!(h.app.pomo.running);
-    h.click(H::local(329.0,50.0));assert!(!h.app.pomo.running && h.app.pomo.phase==Phase::Rest);
+    h.click(H::local(253.0,99.0));assert!(h.app.pomo.running);
+    h.click(H::local(321.5,56.5));assert!(h.app.pomo.phase==Phase::Rest && !h.app.pomo.running);
+    h.click(H::local(253.0,99.0));assert!(h.app.pomo.running);
+    h.click(H::local(351.0,99.0));assert!(!h.app.pomo.running && h.app.pomo.phase==Phase::Rest);
     assert_eq!(h.app.pomo.remaining,420.0,"重置应保留休息阶段");
+}
+
+#[test]
+#[ignore="Export localized focus layouts for visual review"]
+fn focus_layout_gallery(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    let dest=std::path::PathBuf::from(std::env::var_os("ISLO_FOCUS_PREVIEW_DIR").expect("preview output directory"));
+    std::fs::create_dir_all(&dest).unwrap();
+    for (language,lang) in [(crate::i18n::Language::Chinese,"zh"),(crate::i18n::Language::English,"en")] {
+        for skin in [crate::model::Skin::Classic,crate::model::Skin::Cream] {
+            for (name,phase,running,remaining) in [("focus",crate::app::Phase::Focus,false,1500.0),("running",crate::app::Phase::Focus,true,912.0),("rest",crate::app::Phase::Rest,false,300.0),("long",crate::app::Phase::Focus,false,10800.0)] {
+                let mut h=H::new();h.app.settings.language=language;h.app.settings.skin=skin;h.app.settings.island_shape=crate::model::IslandShape::Pill;
+                h.app.show_page(1);h.app.pomo.phase=phase;h.app.pomo.running=running;h.app.pomo.remaining=remaining;
+                let ppp=1.25;let (width,height)=((WIN_W*ppp)as u32,(WIN_H*ppp)as u32);
+                let mut raster=crate::preview_raster::Raster::new(width as usize,height as usize);
+                for frame in 0..90 {
+                    let t=frame as f64/60.0;
+                    let env=Env{t,clock:"14:38:00".into(),today:"2026-11-07".into(),date:"11月7日 周六".into(),cursor:Some(H::local(200.0,18.0)),..Default::default()};
+                    let raw=egui::RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,Vec2::new(WIN_W,WIN_H))),time:Some(t),viewports:std::iter::once((egui::ViewportId::ROOT,egui::ViewportInfo{native_pixels_per_point:Some(ppp),..Default::default()})).collect(),..Default::default()};
+                    let output=h.ctx.run(raw,|ctx|{egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx,|ui|{let win=ui.max_rect();h.app.frame(ui,win,&env);});});
+                    raster.update_textures(&output.textures_delta);
+                    if frame==89 {
+                        raster.buf.fill([0.81,0.84,0.88,1.0]);raster.draw(&h.ctx.tessellate(output.shapes,output.pixels_per_point),output.pixels_per_point);
+                        let mut rgba=Vec::new();raster.to_rgba8(&mut rgba);
+                        image::save_buffer(dest.join(format!("focus-{lang}-{}-{name}.png",skin.key())),&rgba,width,height,image::ColorType::Rgba8).unwrap();
+                    }
+                    raster.free_textures(&output.textures_delta);
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -3247,8 +3486,8 @@ fn bluetooth_badge_follows_connect_and_disconnect(){
 }
 
 #[test]
-fn focus_settings_are_inside_focus_page(){
-    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);h.app.go(1,1.0);h.hover(H::local(300.0,60.0),0.8);h.click(H::local(110.0,18.0));assert_eq!(h.app.page,1);assert_eq!(h.app.subpage,Some(1));
+fn focus_settings_are_accessible_from_the_page_gear(){
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);h.app.go(1,1.0);h.hover(H::local(300.0,60.0),0.8);h.click(H::local(394.0,18.0));assert_eq!(h.app.page,1);assert!(h.app.settings_open);assert_eq!(h.app.settings_tab,2);
 }
 
 #[test]
@@ -3363,7 +3602,7 @@ fn calendar_month_navigation_and_today_select_the_right_day() {
     h.app.open_calendar(None);
     h.app.select_calendar_day(chrono::NaiveDate::from_ymd_opt(2026,12,31).unwrap());
     h.hover(H::local(300.0,60.0),1.0);
-    h.click(H::local(129.0,80.0));
+    h.click(H::local(170.0,55.0));
     assert_eq!(h.app.calendar.view.month,chrono::NaiveDate::from_ymd_opt(2027,1,1).unwrap());
     let point=h.shapes.iter().find_map(|s|match &s.shape{egui::Shape::Text(t) if t.galley.text()=="15"=>Some(t.visual_bounding_rect().center()),_=>None}).expect("日期应显示在岛上");
     h.click(point);
@@ -3413,7 +3652,7 @@ fn calendar_layout_gallery() {
     let dest=std::path::PathBuf::from(std::env::var_os("ISLO_CALENDAR_PREVIEW_DIR").expect("需指定预览目录"));
     std::fs::create_dir_all(&dest).unwrap();
     for mode in ["agenda","dingtalk","wecom","empty","loading","failed","disconnected","local-editor","local","local-all-day","mixed"] {
-        let mut h=H::new();
+        let mut h=H::new();h.app.settings.language=if std::env::var("ISLO_UI_PREVIEW_LANGUAGE").as_deref()==Ok("en"){crate::i18n::Language::English}else{crate::i18n::Language::Chinese};h.app.settings.skin=crate::model::Skin::parse(&std::env::var("ISLO_CALENDAR_PREVIEW_SKIN").unwrap_or_else(|_|"classic".into()));h.app.settings.island_shape=crate::model::IslandShape::Pill;
         let day=chrono::NaiveDate::from_ymd_opt(2026,11,2).unwrap();
         h.app.calendar.view.day=day;h.app.calendar.view.month=crate::calendar::month_start(day);
         h.app.open_calendar(None);
@@ -3444,10 +3683,11 @@ fn calendar_layout_gallery() {
         if mode=="local-editor"{h.app.open_calendar_editor(None);}
         if mode=="loading"{h.app.calendar.view.loaded=None;h.app.calendar.view.loading=true;}
         if mode=="failed"{h.app.calendar.view.loaded=None;h.app.calendar.view.error="连不上服务器，检查网络".into();}
-        let mut raster=crate::preview_raster::Raster::new(1280,600);
+        let canvas_height=h.app.canvas_height();let raster_height=(canvas_height*2.0)as u32;
+        let mut raster=crate::preview_raster::Raster::new(1280,raster_height as usize);
         for f in 0..90 {
             let t=f as f64/60.0;
-            let raw=egui::RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(WIN_W,WIN_H))),time:Some(t),viewports:std::iter::once((egui::ViewportId::ROOT,egui::ViewportInfo{native_pixels_per_point:Some(2.0),..Default::default()})).collect(),..Default::default()};
+            let raw=egui::RawInput{screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(WIN_W,canvas_height))),time:Some(t),viewports:std::iter::once((egui::ViewportId::ROOT,egui::ViewportInfo{native_pixels_per_point:Some(2.0),..Default::default()})).collect(),..Default::default()};
             let env=Env{t,today:"2026-11-02".into(),date:"11月2日 周一".into(),clock:"14:15:00".into(),battery:Some(76),charging:true,cursor:Some(H::local(300.0,40.0)),..Default::default()};
             let out=h.ctx.run(raw,|ctx|{egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx,|ui|{let win=ui.max_rect();h.app.frame(ui,win,&env);});});
             raster.update_textures(&out.textures_delta);
@@ -3456,8 +3696,8 @@ fn calendar_layout_gallery() {
                     assert!(out.shapes.iter().any(|shape|matches!(&shape.shape,egui::Shape::Text(t) if t.galley.text()=="散步与读书")),"只有全天日程时也必须显示普通日程行");
                 }
                 raster.buf.fill([0.035,0.055,0.09,1.0]);raster.draw(&h.ctx.tessellate(out.shapes,out.pixels_per_point),out.pixels_per_point);
-                let mut rgba=Vec::new();raster.to_rgba8(&mut rgba);let image=image::RgbaImage::from_raw(1280,600,rgba).unwrap();
-                image::imageops::crop_imm(&image,180,0,920,510).to_image().save(dest.join(format!("calendar-{mode}.png"))).unwrap();
+                let mut rgba=Vec::new();raster.to_rgba8(&mut rgba);let image=image::RgbaImage::from_raw(1280,raster_height,rgba).unwrap();
+                image::imageops::crop_imm(&image,180,0,920,((crate::app::CALENDAR_H+24.0)*2.0)as u32).to_image().save(dest.join(format!("calendar-{mode}.png"))).unwrap();
             }
             raster.free_textures(&out.textures_delta);
         }

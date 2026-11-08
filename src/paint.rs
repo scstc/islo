@@ -374,10 +374,10 @@ pub fn close(c:&Card,cx:f32,cy:f32,r:f32,color:Color32) {
 pub fn chevron(c: &Card, x: f32, y: f32, dir: f32, hover: f32, press: f32) {
     let k = 1.0 - 0.08 * press;
     let c = c.scaled(x, y, k);
-    c.circle(x, y, 9.0, mix(theme::ARROW_BG, Color32::from_rgb(78, 78, 82), hover));
+    c.circle(x, y, 15.0, mix(theme::ARROW_BG, Color32::from_rgb(78, 78, 82), hover));
     let nudge = dir * 0.8 * hover;
-    let (cx, s) = (x + nudge + dir * 0.6, 2.7);
-    c.path(&[(cx - dir * s * 0.75, y - s), (cx + dir * s * 0.45, y), (cx - dir * s * 0.75, y + s)], 1.6, Color32::WHITE);
+    let (cx, s) = (x + nudge + dir * 0.6, 4.4);
+    c.path(&[(cx - dir * s * 0.75, y - s), (cx + dir * s * 0.45, y), (cx - dir * s * 0.75, y + s)], 2.0, Color32::WHITE);
 }
 
 /// 电池环：充电绿色 + 闪电；低电量红色；否则灰色并显示百分比弧。

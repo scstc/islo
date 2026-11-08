@@ -5,7 +5,7 @@ use islo::{
 };
 use std::path::PathBuf;
 
-const USAGE:&str="islo-cli [--data-dir ISOLATED_DIR] settings list | settings get KEY | settings set KEY VALUE | settings apply --file PATCH.json. Values use settings.txt format; booleans: 0/1.";
+const USAGE:&str="islo-cli [--data-dir ISOLATED_DIR] capabilities | DOMAIN ACTION [--flag VALUE]. Domains: settings, tasks, calendar, focus, water, shelf, music, mail, notifications, quota, app. Run capabilities for flags and availability. Settings: list | get KEY | set KEY VALUE | apply --file PATCH.json.";
 
 fn run() -> Result<serde_json::Value, String> {
     let mut args: Vec<_> = std::env::args().skip(1).collect();
@@ -29,6 +29,31 @@ fn run() -> Result<serde_json::Value, String> {
     }
     if args == ["--version"] {
         return Ok(serde_json::json!({"ok":true,"version":env!("ISLO_APP_VERSION")}));
+    }
+    if args == ["--unregister-cli"] {
+        islo::cli_registration::unregister()?;
+        return Ok(serde_json::json!({"ok":true,"unregistered":true}));
+    }
+    if args == ["capabilities"] {
+        return Ok(
+            serde_json::json!({"ok":true,"version":env!("ISLO_APP_VERSION"),"result":islo::agent_commands::capabilities()}),
+        );
+    }
+    if args.first().is_some_and(|v| v != "settings") {
+        let command = islo::agent_commands::parse(&args)?;
+        let reply = agent_control::execute_command(&directory, command, isolated)?;
+        if !reply.ok {
+            return Err(reply.error.unwrap_or_else(|| {
+                "Command failed; running application may need an upgrade/restart".into()
+            }));
+        }
+        if reply.result.is_none() {
+            return Err(
+                "The running application does not support this command; upgrade/restart islo"
+                    .into(),
+            );
+        }
+        return serde_json::to_value(reply).map_err(|e| e.to_string());
     }
     let (patch, key) = match args
         .iter()

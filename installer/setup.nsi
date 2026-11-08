@@ -236,6 +236,13 @@ FunctionEnd
 
 Section "Uninstall"
   Call un.CheckClosed
+  IfFileExists "$INSTDIR\islo-cli.exe" 0 cli_unregistered
+    ExecWait '"$INSTDIR\islo-cli.exe" --unregister-cli' $0
+    ${If} $0 != 0
+      MessageBox MB_OK|MB_ICONSTOP "无法撤销 CLI 命令注册，请关闭其他 islo 安装程序后重试。" /SD IDOK
+      Abort
+    ${EndIf}
+  cli_unregistered:
   Delete "$INSTDIR\islo.exe"
   Delete "$INSTDIR\islo-cli.exe"
   Delete "$INSTDIR\islo-previous.exe"
