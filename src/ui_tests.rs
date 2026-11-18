@@ -359,7 +359,7 @@ fn i18n_health_schedule_keeps_hours_and_translates_lunch_controls(){
     h.app.open_settings_category(1);
     h.hover(H::local(300.0,60.0),1.0);
     assert!(h.shapes.iter().any(|shape|matches!(&shape.shape,egui::Shape::Text(t) if t.galley.text().contains(" · Lunch "))));
-    h.click(H::local(200.0,113.0));
+    h.click(H::health_local(200.0,113.0));
     h.hover(H::local(300.0,60.0),0.5);
     let text=h.shapes.iter().filter_map(|shape|match &shape.shape {
         egui::Shape::Text(label)=>Some(label.galley.text()),_=>None,
@@ -652,6 +652,42 @@ fn english_world_clock_has_no_chinese_ui_and_keeps_all_controls_inside_the_islan
 }
 
 #[test]
+fn world_clock_header_keeps_the_time_clear_of_page_actions() {
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    for language in [crate::i18n::Language::Chinese,crate::i18n::Language::English] {
+        for (scale,twelve,period) in [(1.0,false,0),(1.25,true,1),(1.5,true,2),(2.0,false,2)] {
+            let mut h=H::new();
+            h.ctx.set_pixels_per_point(scale);
+            h.app.settings.language=language;
+            h.app.settings.clock_12h=twelve;
+            h.app.settings.clock_seconds=period!=0;
+            h.app.settings.clock_period=period;
+            h.power=(Some(85),true);
+            h.app.open_world_clock_island();
+            h.hover(H::local(200.0,32.0),1.0);
+            let locale=language.resolve();
+            let digits=if twelve{"9:41:00"}else if period==0{"09:41"}else{"09:41:00"};
+            let clock=h.shapes.iter().find_map(|shape|match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text()==digits && text.visual_bounding_rect().center().y<30.0=>Some(text.visual_bounding_rect()),
+                _=>None,
+            }).expect("世界时钟顶栏应显示本机时间");
+            let mut button_rects=vec![];
+            for (id,label) in [("world-expand","展开"),("world-view","地球")] {
+                let button=h.ctx.read_response(egui::Id::new(("card",true,id))).unwrap().rect;
+                let ink=h.shapes.iter().find_map(|shape|match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.text()==locale.text(label)=>Some(text.visual_bounding_rect()),
+                    _=>None,
+                }).unwrap();
+                assert!(!clock.expand(4.0).intersects(button),"{language:?} {scale}x：时钟 {clock:?} 与 {label} {button:?} 冲突");
+                assert!(button.contains_rect(ink) && h.hit.contains_rect(button),"{language:?} {scale}x：{label} 应完整显示且可点击");
+                button_rects.push(button);
+            }
+            assert!(!button_rects[0].expand(3.0).intersects(button_rects[1]),"两个按钮应留出可点击间距");
+        }
+    }
+}
+
+#[test]
 fn english_general_settings_reflow_at_minimum_width_in_both_themes() {
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
     use crate::model::{Dock,Skin};
@@ -801,8 +837,8 @@ fn world_clock_preview_pagination_and_settings_are_reachable() {
     h.app.settings.world_clock_cities.truncate(1);h.frame(vec![]);
     assert_eq!(h.app.world_clock.first,0);assert!(contains(&h,"北京"));
     h.click(H::local(394.0,18.0));assert!(h.app.settings_open);assert_eq!(h.app.settings_tab,12);
-    h.click(H::local(323.5,18.0));assert!(h.app.world_clock.globe_view);
-    h.click(H::local(286.5,18.0));assert!(h.app.world_clock.window_open);
+    h.click_text("地球");assert!(h.app.world_clock.globe_view);
+    h.click_text("展开");assert!(h.app.world_clock.window_open);
 }
 
 #[test]
@@ -2105,6 +2141,9 @@ impl H {
     }
     fn local(x: f32, y: f32) -> Pos2 {
         Pos2::new((WIN_W - PW) / 2.0 + x, y)
+    }
+    fn health_local(x: f32, y: f32) -> Pos2 {
+        Self::local(x,y+crate::app::HEALTH_HEADER_H)
     }
     fn quota_accounts(&mut self,count:usize) {
         use crate::quota::{Account,Provider,Snapshot,Window};
@@ -4376,7 +4415,7 @@ fn drink_adds_water_and_todo_can_be_added() {
     h.hover(Pos2::new(WIN_W / 2.0, 12.0), 1.0);
     h.app.go(2, 1.0);
     h.hover(H::local(300.0, 60.0), 0.8);
-    h.click(H::local(70.0, 110.0));
+    h.click(H::health_local(70.0, 110.0));
     assert_eq!(h.app.water.drunk_ml, 250);
     assert_eq!(h.app.water.hours[9], 250);
 
@@ -4448,8 +4487,8 @@ fn reminders_are_visible_while_collapsed_and_can_be_disabled(){
 #[test]
 fn water_serving_and_undo_are_consistent(){
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);h.app.go(2,1.0);h.hover(H::local(300.0,60.0),0.8);
-    h.app.settings.serving_ml=350;h.click(H::local(70.0,110.0));assert_eq!(h.app.water.drunk_ml,350);assert_eq!(h.app.water.hours[9],350);
-    h.click(H::local(191.0,110.0));assert_eq!(h.app.water.drunk_ml,0);assert_eq!(h.app.water.hours[9],0);
+    h.app.settings.serving_ml=350;h.click(H::health_local(70.0,110.0));assert_eq!(h.app.water.drunk_ml,350);assert_eq!(h.app.water.hours[9],350);
+    h.click(H::health_local(191.0,110.0));assert_eq!(h.app.water.drunk_ml,0);assert_eq!(h.app.water.hours[9],0);
 }
 #[test]
 fn mascot_rest_and_focus_have_distinct_states(){
@@ -4844,13 +4883,13 @@ fn minimal_takes_precedence_over_mascot(){
 #[test]
 fn water_settings_are_in_the_island_and_editable(){
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);
-    h.app.go(2,1.0);h.hover(H::local(300.0,60.0),0.8);h.click(H::local(145.0,110.0));assert_eq!(h.app.page,2);assert_eq!(h.app.subpage,Some(2));assert_eq!(h.app.settings_category,1);
-    h.hover(H::local(300.0,60.0),0.8);h.click(H::local(357.0,69.0));assert_eq!(h.app.settings.serving_ml,300);
+    h.app.go(2,1.0);h.hover(H::local(300.0,60.0),0.8);h.click(H::health_local(145.0,110.0));assert_eq!(h.app.page,2);assert_eq!(h.app.subpage,Some(2));assert_eq!(h.app.settings_category,1);
+    h.hover(H::local(300.0,60.0),0.8);h.click(H::health_local(357.0,69.0));assert_eq!(h.app.settings.serving_ml,300);
     // 标题旁的切换在设置子页同样可用：切到久坐后第一行就是久坐时长，最后一行时段两边共用。
-    h.click(H::local(136.0,19.0));assert!(h.app.sit_mode);for _ in 0..40{h.frame(vec![]);}
-    h.hover(H::local(300.0,60.0),0.3);h.click(H::local(357.0,47.0));assert_eq!(h.app.settings.sit_minutes,65);
-    h.hover(H::local(300.0,60.0),0.3);h.click(H::local(357.0,113.0));assert!(h.app.health_time,"最后一行进入提醒时段二级页");
-    let end=h.app.settings.water_end;h.hover(H::local(300.0,60.0),0.3);h.click(H::local(357.0,47.0));assert_eq!(h.app.settings.water_end,(end+1)%24);
+    h.click(H::health_local(136.0,19.0));assert!(h.app.sit_mode);for _ in 0..40{h.frame(vec![]);}
+    h.hover(H::local(300.0,60.0),0.3);h.click(H::health_local(357.0,47.0));assert_eq!(h.app.settings.sit_minutes,65);
+    h.hover(H::local(300.0,60.0),0.3);h.click(H::health_local(357.0,113.0));assert!(h.app.health_time,"最后一行进入提醒时段二级页");
+    let end=h.app.settings.water_end;h.hover(H::local(300.0,60.0),0.3);h.click(H::health_local(357.0,47.0));assert_eq!(h.app.settings.water_end,(end+1)%24);
 }
 #[test]
 fn lunch_break_silences_water_and_sit_reminders(){
@@ -4871,10 +4910,10 @@ fn lunch_break_silences_water_and_sit_reminders(){
 fn health_time_subpage_edits_lunch_and_backs_out_one_level(){
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);
     h.app.open_settings_category(1);for _ in 0..30{h.frame(vec![]);}
-    h.hover(H::local(300.0,60.0),0.3);h.click(H::local(200.0,113.0));assert!(h.app.health_time,"点提醒时段行进入二级页");
-    let start=h.app.settings.lunch_start;h.hover(H::local(300.0,60.0),0.3);h.click(H::local(225.0,91.0));assert_eq!(h.app.settings.lunch_start,start+15);
-    h.hover(H::local(300.0,60.0),0.3);h.click(H::local(353.0,69.0));assert!(!h.app.settings.lunch_rest,"午休开关可关闭");
-    h.hover(H::local(300.0,60.0),0.3);h.click(H::local(20.0,18.0));assert!(!h.app.health_time);assert_eq!(h.app.subpage,Some(2),"返回先回到健康提醒设置");
+    h.hover(H::local(300.0,60.0),0.3);h.click(H::health_local(200.0,113.0));assert!(h.app.health_time,"点提醒时段行进入二级页");
+    let start=h.app.settings.lunch_start;h.hover(H::local(300.0,60.0),0.3);h.click(H::health_local(225.0,91.0));assert_eq!(h.app.settings.lunch_start,start+15);
+    h.hover(H::local(300.0,60.0),0.3);h.click(H::health_local(353.0,69.0));assert!(!h.app.settings.lunch_rest,"午休开关可关闭");
+    h.hover(H::local(300.0,60.0),0.3);h.click(H::health_local(20.0,18.0));assert!(!h.app.health_time);assert_eq!(h.app.subpage,Some(2),"返回先回到健康提醒设置");
 }
 #[test]
 fn sit_reminder_waits_for_confirmation_before_restarting(){
@@ -4914,13 +4953,13 @@ fn sit_notice_and_page_buttons_reset_the_timer(){
     // 健康页：点「久坐」分段切换，同一位置的主按钮变成「起身了」、开关管久坐；点「喝水」切回
     h.app.sit_start=h.t-30.0*60.0;
     h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);h.app.go(2,1.0);h.hover(H::local(300.0,60.0),0.8);
-    h.click(H::local(124.0,22.0));assert!(h.app.sit_mode);h.hover(H::local(300.0,90.0),0.8);
-    h.click(H::local(70.0,110.0));assert_eq!(h.app.sat_minutes(),0);assert_eq!(h.app.water.drunk_ml,0);
+    h.click(H::health_local(124.0,22.0));assert!(h.app.sit_mode);h.hover(H::local(300.0,90.0),0.8);
+    h.click(H::health_local(70.0,110.0));assert_eq!(h.app.sat_minutes(),0);assert_eq!(h.app.water.drunk_ml,0);
     let water_remind=h.app.water.remind;
-    h.click(H::local(179.0,46.0));assert!(!h.app.settings.sit_remind);assert_eq!(h.app.water.remind,water_remind,"久坐模式的开关只管久坐");
+    h.click(H::health_local(179.0,46.0));assert!(!h.app.settings.sit_remind);assert_eq!(h.app.water.remind,water_remind,"久坐模式的开关只管久坐");
     assert!(!crate::model::Settings::load().sit_remind,"重新加载后应保留久坐开关");
-    h.click(H::local(97.0,22.0));assert!(!h.app.sit_mode);h.hover(H::local(300.0,90.0),0.8);
-    h.click(H::local(70.0,110.0));assert_eq!(h.app.water.drunk_ml,250,"回到喝水后按钮可用");
+    h.click(H::health_local(97.0,22.0));assert!(!h.app.sit_mode);h.hover(H::local(300.0,90.0),0.8);
+    h.click(H::health_local(70.0,110.0));assert_eq!(h.app.water.drunk_ml,250,"回到喝水后按钮可用");
 }
 #[test]
 fn water_notice_buttons_work_without_opening_panel(){

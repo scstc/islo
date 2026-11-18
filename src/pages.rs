@@ -399,8 +399,12 @@ impl App {
         }
 
         let (s, sc) = capsule(c, 111.0, 98.0, 66.0, 25.0, "w-set", theme::BTN, theme::BTN_HOVER);
-        paint::sliders(&sc, 126.0, 110.5, theme::WHITE);
-        sc.text(149.0, 114.0, locale.text("设置"), size::BODY, W::Regular, theme::WHITE, H::Center);
+        let label=locale.text("设置");
+        let icon_width=11.0;
+        let gap=5.0;
+        let start=144.0-(icon_width+gap+sc.text_w(label,size::BODY,W::Regular))/2.0;
+        paint::sliders(&sc,start+icon_width/2.0,110.5,theme::WHITE);
+        sc.centered_text(start+icon_width+gap,110.5,label,size::BODY,W::Regular,theme::WHITE,H::Left);
         if s.clicked() { self.open_settings_category(1); }
         c.fill(208.0, 36.0, 1.0, 86.0, 0.5, Color32::from_rgb(30, 30, 33));
 
@@ -420,9 +424,10 @@ impl App {
     pub(crate) fn health_tabs(&mut self, c: &Card, x: f32, sv: f32) {
         let locale=self.settings.locale();
         let accent_now = mix(theme::BLUE, theme::SIT_GREEN, sv);
+        let gap=if locale.is_english(){4.0}else{1.5};
         let wa = c.text(x, 25.0, locale.text("健康"), size::TITLE, W::Bold, theme::WHITE, H::Left);
-        let wb = c.text(x + wa + 1.5, 25.0, locale.text("提醒"), size::TITLE, W::Bold, accent_now, H::Left);
-        let x0 = x + wa + 1.5 + wb + 7.0;
+        let wb = c.text(x + wa + gap, 25.0, locale.text("提醒"), size::TITLE, W::Bold, accent_now, H::Left);
+        let x0 = x + wa + gap + wb + 7.0;
         let (w, y, h) = (22.0, 11.0, 16.0);
         c.fill(x0, y, w * 2.0 + 3.0, h, h / 2.0, Color32::from_rgb(30, 30, 33));
         let px = lerp(x0 + 1.5, x0 + 1.5 + w, sv);

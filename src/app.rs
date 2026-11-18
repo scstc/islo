@@ -37,7 +37,9 @@ pub const WORLD_CLOCK_PAGE: usize = 8;
 pub const WEATHER_PAGE: usize = 9;
 pub(crate) const WEATHER_H: f32 = 232.0;
 pub(crate) const CALENDAR_H: f32 = 256.0;
-pub(crate) const WORLD_CLOCK_H: f32 = 352.0;
+pub(crate) const HEALTH_HEADER_H: f32 = 24.0;
+pub(crate) const WORLD_CLOCK_TOOLBAR_H: f32 = 24.0;
+pub(crate) const WORLD_CLOCK_H: f32 = 352.0 + WORLD_CLOCK_TOOLBAR_H;
 pub const BAR_W: f32 = 163.0; // 收起药丸宽
 pub const BAR_H: f32 = 30.0; // 收起药丸高
 pub(crate) const HUD_W: f32 = 260.0;
@@ -1802,7 +1804,7 @@ impl App {
     }
 
     pub fn expanded_height(&self)->f32 {
-        if self.page==WORLD_CLOCK_PAGE {WORLD_CLOCK_H}else if self.page==CALENDAR_PAGE {CALENDAR_H}else if self.page==WEATHER_PAGE {WEATHER_H}else if self.page==6{176.0}else if self.page==5&&self.mail.open_uid.is_some(){236.0}else{PH}
+        if self.page==WORLD_CLOCK_PAGE {WORLD_CLOCK_H}else if self.page==CALENDAR_PAGE {CALENDAR_H}else if self.page==WEATHER_PAGE {WEATHER_H}else if self.page==WATER_PAGE {PH+HEALTH_HEADER_H}else if self.page==6{176.0}else if self.page==5&&self.mail.open_uid.is_some(){236.0}else{PH}
     }
 
     // ---------------------------------------------------------------
@@ -3019,16 +3021,18 @@ impl App {
         paint::gear(&c.scaled(394.0,18.0,0.8*(1.0-press*0.08)),394.0,18.0,paint::mix(theme::GRAY,theme::WHITE,hover));
         if settings.clicked(){self.settings_tab=PAGE_SETTINGS_TABS[self.page];self.open_settings();}
         if self.subpage==Some(self.page) {
-            c.text(15.0,25.0,"‹",19.0,W::Bold,theme::WHITE,H::Left);
+            let health_card=(self.page==WATER_PAGE).then(||c.shifted(0.0,HEALTH_HEADER_H));
+            let content=health_card.as_ref().unwrap_or(c);
+            content.text(15.0,25.0,"‹",19.0,W::Bold,theme::WHITE,H::Left);
             // 健康提醒设置沿用主页的标题 + 喝水/久坐切换，切到哪边就设置哪边。
-            if self.page==2 && self.health_time {c.text(31.0,25.0,locale.text("提醒时段"),size::TITLE,W::Bold,theme::WHITE,H::Left);}
-            else if self.page==2 {let sv=self.sit_view_t.pos.clamp(0.0,1.0);self.health_tabs(c,31.0,sv);}
-            else {c.text(37.0,25.0,locale.text("专注设置"),size::TITLE,W::Bold,theme::WHITE,H::Left);}
+            if self.page==WATER_PAGE && self.health_time {content.text(31.0,25.0,locale.text("提醒时段"),size::TITLE,W::Bold,theme::WHITE,H::Left);}
+            else if self.page==WATER_PAGE {let sv=self.sit_view_t.pos.clamp(0.0,1.0);self.health_tabs(content,31.0,sv);}
+            else {content.text(37.0,25.0,locale.text("专注设置"),size::TITLE,W::Bold,theme::WHITE,H::Left);}
             // 「提醒时段」二级页的返回先回到健康提醒设置，再退出设置。
-            if c.hit(9.0,7.0,28.0,23.0,"subpage-back").clicked(){
+            if content.hit(9.0,7.0,28.0,23.0,"subpage-back").clicked(){
                 if self.page==2 && self.health_time {self.health_time=false;} else {self.subpage=None;self.settings_editing=false;}
             }
-            self.page_settings(c);self.nav(c);return;
+            self.page_settings(content);self.nav(c);return;
         }
         let e = self.page_e();
         let in_tx = e < 0.55 && self.page_from != self.page;
@@ -3081,7 +3085,11 @@ impl App {
     fn nav(&mut self, c: &Card) {
         let pages: Vec<_>=self.settings.page_order.iter().copied().filter(|page|self.settings.visible_pages[*page]).collect();
         if pages.len()<2 { return; }
-        let arrow_y=if self.page==QUOTA_PAGE||self.page==WEATHER_PAGE{88.0}else{68.0};
+        let arrow_y=match self.page {
+            QUOTA_PAGE|WEATHER_PAGE=>88.0,
+            WORLD_CLOCK_PAGE=>68.0+WORLD_CLOCK_TOOLBAR_H,
+            _=>68.0,
+        };
         let l = c.hit(8.0, arrow_y-13.0, 26.0, 26.0, "nav-l");
         let r = c.hit(385.0, arrow_y-13.0, 26.0, 26.0, "nav-r");
         let (lh, lp) = c.hover_t(&l);
@@ -3133,7 +3141,7 @@ impl App {
         match page {
             0 => self.page_music(c, env, cmds),
             1 => self.page_focus(c, env),
-            2 => self.page_water(c, env),
+            WATER_PAGE => self.page_water(&c.shifted(0.0,HEALTH_HEADER_H), env),
             3 => self.page_shelf(c, env, cmds),
             4 => self.page_todo(c, env, cmds),
             5 => self.page_mail(c, env, cmds),

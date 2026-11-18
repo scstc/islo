@@ -1,5 +1,5 @@
 //! 世界时钟：离线 IANA 时区换算，界面时间由外壳传入。
-use crate::{app::{App, Env}, paint::{Card, H}, theme::{self, W}};
+use crate::{app::{App, Env, WORLD_CLOCK_H, WORLD_CLOCK_TOOLBAR_H}, paint::{Card, H}, theme::{self, W}};
 use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDateTime, Offset, Timelike, Utc};
 use chrono_tz::Tz;
 use eframe::egui;
@@ -178,14 +178,25 @@ impl App {
         let locale=self.settings.locale();
         let title_width=c.text(15.0,25.0,locale.text("世界"),theme::size::TITLE,W::Bold,theme::WHITE,H::Left);
         c.text(15.0+title_width+if locale.is_english(){4.0}else{1.5},25.0,locale.text("时钟"),theme::size::TITLE,W::Bold,theme::BLUE,H::Left);
-        let toggle=c.hit(308.0,6.0,31.0,25.0,"world-view").on_hover_text(locale.text("切换城市列表与地球"));
+        // 世界时钟操作单独一行，给共享顶栏的日期、时间和电池留出空间。
+        let toolbar_y=34.0;
+        let label_size=10.5;
+        let button_width=["展开","地球","列表"].into_iter()
+            .map(|label|c.text_w(locale.text(label),label_size,W::Regular))
+            .fold(0.0,f32::max)+16.0;
+        let toggle_x=375.0-button_width;
+        let expand_x=toggle_x-button_width-6.0;
+        let label_y=toolbar_y+WORLD_CLOCK_TOOLBAR_H/2.0;
+        let toggle=c.hit(toggle_x,toolbar_y,button_width,WORLD_CLOCK_TOOLBAR_H,"world-view").on_hover_text(locale.text("切换城市列表与地球"));
         let (hover,_)=c.hover_t(&toggle);
-        c.centered_text(323.5,18.0,if self.world_clock.globe_view{locale.text("列表")}else{locale.text("地球")},10.5,W::Regular,crate::paint::mix(theme::GRAY,theme::WHITE,hover),H::Center);
+        c.centered_text(toggle_x+button_width/2.0,label_y,if self.world_clock.globe_view{locale.text("列表")}else{locale.text("地球")},label_size,W::Regular,crate::paint::mix(theme::GRAY,theme::WHITE,hover),H::Center);
         if toggle.clicked(){self.world_clock.globe_view=!self.world_clock.globe_view;}
-        let expand=c.hit(271.0,6.0,31.0,25.0,"world-expand").on_hover_text(locale.text("展开世界时钟窗口"));
+        let expand=c.hit(expand_x,toolbar_y,button_width,WORLD_CLOCK_TOOLBAR_H,"world-expand").on_hover_text(locale.text("展开世界时钟窗口"));
         let (hover,_)=c.hover_t(&expand);
-        c.centered_text(286.5,18.0,locale.text("展开"),10.5,W::Regular,crate::paint::mix(theme::GRAY,theme::WHITE,hover),H::Center);
+        c.centered_text(expand_x+button_width/2.0,label_y,locale.text("展开"),label_size,W::Regular,crate::paint::mix(theme::GRAY,theme::WHITE,hover),H::Center);
         if expand.clicked(){self.world_clock.window_open=true;self.world_clock.window_focus=true;}
+        let content=c.shifted(0.0,WORLD_CLOCK_TOOLBAR_H);
+        let c=&content;
         let Some(now) = instant(env) else {
             c.text(209.5,90.0,locale.text("等待系统时间"),13.0,W::Regular,theme::GRAY,H::Center);
             return;
@@ -195,7 +206,7 @@ impl App {
         let count = self.settings.world_clock_cities.len();
         self.world_clock.selected=self.world_clock.selected.min(count.saturating_sub(1));
         self.world_clock.first = self.world_clock.first.min(count.saturating_sub(1) / 3 * 3);
-        let footer_y=crate::app::WORLD_CLOCK_H-64.0;
+        let footer_y=WORLD_CLOCK_H-WORLD_CLOCK_TOOLBAR_H-64.0;
         if self.world_clock.globe_view {
             let area=egui::Rect::from_min_size(egui::pos2(45.0,72.0),egui::vec2(174.0,174.0));
             if let Some(index)=self.world_clock.globe.draw(c,area,now,&self.settings.world_clock_cities,self.world_clock.selected,false,locale){self.world_clock.selected=index;}

@@ -160,6 +160,50 @@ fn health_fullscreen_with_hide_disabled_keeps_normal_reminders(){
 }
 
 #[test]
+fn health_header_and_settings_button_keep_text_clear_of_controls() {
+    let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    for language in [crate::i18n::Language::Chinese,crate::i18n::Language::English] {
+        for scale in [1.0,1.5,2.0] {
+            let mut h=H::new();
+            h.ctx.set_pixels_per_point(scale);
+            h.app.settings.language=language;
+            h.app.settings.clock_seconds=true;
+            h.app.settings.clock_period=2;
+            h.power=(Some(85),true);
+            h.app.show_page(crate::app::WATER_PAGE);
+            h.hover(H::local(300.0,60.0),1.0);
+            let locale=language.resolve();
+            let label_bounds=|h:&H,label:&str|h.shapes.iter().find_map(|shape|match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text()==label=>Some(text.visual_bounding_rect()),
+                _=>None,
+            }).unwrap_or_else(||panic!("缺少 {label}"));
+            let button=h.ctx.read_response(egui::Id::new(("card",true,"w-set"))).unwrap().rect;
+            let label=label_bounds(&h,locale.text("设置"));
+            let icon_right=h.shapes.iter().filter_map(|shape| {
+                let bounds=shape.shape.visual_bounding_rect();
+                (matches!(shape.shape,egui::Shape::LineSegment{..}) && button.contains_rect(bounds)).then_some(bounds.right())
+            }).reduce(f32::max).expect("设置按钮应显示滑杆图标");
+            assert!(button.contains_rect(label) && label.left()>icon_right+3.0,"{language:?} {scale}x：设置文字应与图标分开");
+
+            for settings in [false,true] {
+                if settings {
+                    h.click(button.center());
+                    h.hover(H::local(300.0,60.0),0.5);
+                    assert_eq!(h.app.subpage,Some(crate::app::WATER_PAGE));
+                }
+                let clock=label_bounds(&h,"09:41:00");
+                let title=label_bounds(&h,locale.text("提醒"));
+                assert!(title.top()>clock.bottom()+4.0,"{language:?} {scale}x：健康提醒标题应与本机时间分行显示");
+                for i in [0,1] {
+                    let tab=h.ctx.read_response(egui::Id::new(("card",true,("health-tab",i)))).unwrap().rect;
+                    assert!(tab.top()>clock.bottom()+4.0 && h.hit.contains_rect(tab),"{language:?} {scale}x：健康模式切换应避开顶栏且可点击");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn health_settings_support_direct_input_and_preserve_pending_reminders(){
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=due();
     h.app.open_settings_category(1);h.hover(H::local(300.0,60.0),1.0);
@@ -174,7 +218,7 @@ fn health_settings_support_direct_input_and_preserve_pending_reminders(){
         assert!(!h.app.is_editing());
     }
     h.click_text("5 分钟");h.frame(vec![]);h.frame(vec![egui::Event::Text("50".into())]);
-    h.click(H::local(357.0,89.0));h.frame(vec![]);
+    h.click(H::health_local(357.0,89.0));h.frame(vec![]);
     assert_eq!(crate::model::Settings::load().water_minutes,55,"加号应先保存手输值，再增加五分钟");
     h.click_text("55 分钟");h.frame(vec![]);h.frame(vec![egui::Event::Text("40".into())]);
     h.frame(vec![egui::Event::Key{key:egui::Key::Escape,physical_key:None,pressed:true,repeat:false,modifiers:Default::default()}]);h.frame(vec![]);
