@@ -52,6 +52,53 @@ fn create_backdrop_window() -> windows::core::Result<HWND> {
     }
 }
 
+fn enable_host_backdrop(hwnd: HWND) -> windows::core::Result<()> {
+    unsafe {
+        let on = BOOL::from(true);
+        DwmSetWindowAttribute(hwnd, DWMWA_USE_HOSTBACKDROPBRUSH, (&on as *const BOOL).cast(), std::mem::size_of::<BOOL>() as u32)
+    }
+}
+
+/// 把底板窗口裁成模糊块的并集。底板和岛仔画布一样大，而 `HTTRANSPARENT`
+/// 只把点击让给同一线程的窗口：不裁剪时，画布范围内（含岛右侧和下方大片空白）
+/// 其他程序的标题栏按钮等都会点不动，直到退出岛仔。
+///
+/// 裁剪只负责让出点击，可见轮廓由各模糊块自己的圆角裁剪决定，所以按 `CLIP_GRID` 像素向外取整：
+/// 动画和歌词宽度变化时不必每帧重设窗口区域。每次重设都会让合成器重建这扇窗口，
+/// 在部分核显旧驱动上频繁重设会拖垮合成器（整机闪屏后卡死）。
+const CLIP_GRID: i32 = 8;
+
+fn clip_rects(pieces: &[BlurPiece]) -> Vec<(i32, i32, i32, i32)> {
+    let down = |v: f32| (v.floor() as i32).div_euclid(CLIP_GRID) * CLIP_GRID;
+    let up = |v: f32| -((-(v.ceil() as i32)).div_euclid(CLIP_GRID) * CLIP_GRID);
+    let mut rects: Vec<_> = pieces.iter().filter(|p| p.w > 0.0 && p.h > 0.0)
+        .map(|p| (down(p.x), down(p.y), up(p.x + p.w), up(p.y + p.h))).collect();
+    rects.sort_unstable();
+    rects.dedup();
+    rects
+}
+
+/// 区域没变时不调用系统；返回是否真的重设了区域。
+fn clip_to_pieces(hwnd: HWND, pieces: &[BlurPiece], applied: &mut Option<Vec<(i32, i32, i32, i32)>>) -> bool {
+    use windows::Win32::Graphics::Gdi::{CombineRgn, CreateRectRgn, DeleteObject, SetWindowRgn, RGN_OR};
+    let rects = clip_rects(pieces);
+    if applied.as_ref() == Some(&rects) { return false; }
+    unsafe {
+        let all = CreateRectRgn(0, 0, 0, 0);
+        if all.0.is_null() { return false; }
+        for &(l, t, r, b) in &rects {
+            let part = CreateRectRgn(l, t, r, b);
+            if part.0.is_null() { continue; }
+            let _ = CombineRgn(all, all, part, RGN_OR);
+            let _ = DeleteObject(part);
+        }
+        // 底板没有重定向位图，内容全由合成视觉提供，不需要系统重画。成功后区域归系统所有，不能再删除。
+        if SetWindowRgn(hwnd, all, false) == 0 { let _ = DeleteObject(all); return false; }
+    }
+    *applied = Some(rects);
+    true
+}
+
 pub struct Backdrop {
     hwnd: HWND,
     placed: (RECT, bool),
@@ -64,12 +111,19 @@ pub struct Backdrop {
     brush: CompositionBrush,
     pool: Vec<(SpriteVisual, CompositionRoundedRectangleGeometry)>,
     shown: Vec<BlurPiece>,
+    clip: Option<Vec<(i32, i32, i32, i32)>>,
     visible: bool,
 }
 
 impl Backdrop {
     pub fn new() -> windows::core::Result<Self> {
         let hwnd = create_backdrop_window()?;
+        // Win10 不支持这个 Win32 宿主背景属性。失败时不能继续绘制纯色画刷，
+        // 交给上层使用半透明底色，并释放尚未显示的底板窗口。
+        if let Err(error) = enable_host_backdrop(hwnd) {
+            unsafe { let _ = DestroyWindow(hwnd); }
+            return Err(error);
+        }
         unsafe {
             // 主线程已由窗口框架初始化为单线程套间时返回 S_FALSE，忽略即可。
             let _ = RoInitialize(RO_INIT_SINGLETHREADED);
@@ -90,13 +144,8 @@ impl Backdrop {
         target.SetRoot(&root)?;
         let children = root.Children()?;
         let brush: CompositionBrush = compositor.CreateHostBackdropBrush()?.cast()?;
-        unsafe {
-            // Windows 11 需要显式允许宿主背景画刷；Windows 10 不认识该属性，忽略错误。
-            let on = BOOL::from(true);
-            let _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_HOSTBACKDROPBRUSH, (&on as *const BOOL).cast(), std::mem::size_of::<BOOL>() as u32);
-        }
         root.SetIsVisible(false)?;
-        Ok(Self { hwnd, placed: (RECT::default(), false), _queue: queue, compositor, _target: target, root, children, brush, pool: Vec::new(), shown: Vec::new(), visible: false })
+        Ok(Self { hwnd, placed: (RECT::default(), false), _queue: queue, compositor, _target: target, root, children, brush, pool: Vec::new(), shown: Vec::new(), clip: None, visible: false })
     }
 
     /// 让底板与islo窗口重合，并紧贴在它正下方。
@@ -138,6 +187,7 @@ impl Backdrop {
                     None => visual.SetIsVisible(false)?,
                 }
             }
+            clip_to_pieces(self.hwnd, pieces, &mut self.clip);
             self.shown = pieces.to_vec();
         }
         if !self.visible {
@@ -162,5 +212,66 @@ impl Backdrop {
 impl Drop for Backdrop {
     fn drop(&mut self) {
         unsafe { let _ = DestroyWindow(self.hwnd); }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject, GetWindowRgn, PtInRegion};
+
+    #[test]
+    fn regression_rejected_host_backdrop_is_not_reported_as_working_blur() {
+        assert!(enable_host_backdrop(HWND::default()).is_err(),"DWM 拒绝宿主背景画刷时必须启用透明回退，不能把纯色底板当成模糊成功");
+    }
+
+    #[test]
+    fn backdrop_initialization_respects_system_support_and_starts_hidden() {
+        let hwnd=create_backdrop_window().unwrap();
+        let supported=enable_host_backdrop(hwnd).is_ok();
+        unsafe { let _=DestroyWindow(hwnd); }
+        match Backdrop::new() {
+            Ok(backdrop)=>{
+                assert!(supported);
+                assert!(!unsafe{IsWindowVisible(backdrop.hwnd)}.as_bool(),"模糊块准备好之前不能显示矩形底板");
+            }
+            Err(error)=>assert!(!supported,"支持宿主背景画刷时不应初始化失败：{error}"),
+        }
+    }
+
+    #[test]
+    fn backdrop_only_covers_the_blur_pieces_so_other_apps_stay_clickable() {
+        let hwnd = create_backdrop_window().unwrap();
+        unsafe {
+            let _ = SetWindowPos(hwnd, None, 0, 0, 960, 270, SWP_NOACTIVATE | SWP_NOZORDER);
+            let mut applied = None;
+            assert!(clip_to_pieces(hwnd, &[BlurPiece { x: 230.0, y: 0.0, w: 180.0, h: 34.0, radius: 12.0 }], &mut applied));
+            let region = CreateRectRgn(0, 0, 0, 0);
+            assert_ne!(GetWindowRgn(hwnd, region).0, 0, "底板必须带窗口区域");
+            assert!(PtInRegion(region, 320, 17).as_bool(), "岛体下方仍要显示模糊");
+            assert!(!PtInRegion(region, 800, 150).as_bool(), "画布右侧空白处必须让给下层程序");
+            assert!(!PtInRegion(region, 320, 200).as_bool(), "岛下方空白处必须让给下层程序");
+            assert!(clip_to_pieces(hwnd, &[], &mut applied));
+            GetWindowRgn(hwnd, region);
+            assert!(!PtInRegion(region, 320, 17).as_bool(), "没有模糊块时不能占任何区域");
+            let _ = DeleteObject(region);
+            let _ = DestroyWindow(hwnd);
+        }
+    }
+
+    #[test]
+    fn animation_frames_do_not_reset_the_backdrop_region_every_frame() {
+        // 展开 / 歌词宽度变化时轮廓每帧只差零点几到一两个像素：大多数帧不应重设窗口区域。
+        let hwnd = create_backdrop_window().unwrap();
+        let mut applied = None;
+        let mut resets = 0;
+        for i in 0..60 {
+            let w = 180.0 + i as f32 * 0.5;
+            if clip_to_pieces(hwnd, &[BlurPiece { x: 320.0 - w / 2.0, y: 0.0, w, h: 34.0, radius: 12.0 }], &mut applied) { resets += 1; }
+        }
+        assert!(resets <= 10, "60 帧细微变化重设了 {resets} 次窗口区域");
+        let rects = applied.unwrap();
+        assert!(rects.iter().all(|r| r.0 % CLIP_GRID == 0 && r.2 % CLIP_GRID == 0), "区域应按网格取整");
+        unsafe { let _ = DestroyWindow(hwnd); }
     }
 }

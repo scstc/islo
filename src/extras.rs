@@ -1,12 +1,34 @@
 //! 设置、通知队列与islo表情。
 use crate::settings_theme::color as settings_color;
-use crate::app::{App, Cmd, Phase, HUD_TRACK_W, HUD_TRACK_X, HUD_W, PAGE_NAMES};
+use crate::app::{App, Cmd, Env, Phase, HUD_TRACK_W, HUD_TRACK_X, HUD_W, PAGE_NAMES};
 use crate::paint::{Card, H};
 use crate::theme::{self, size, W};
 use eframe::egui::{self, Color32, Rect};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum AlertSource { Internal, Wechat, External(String) }
+pub(crate) enum AlertSource { Internal, Messenger(crate::app::Messenger), External(String) }
+
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub(crate) enum HealthReminder {Water,Sit}
+impl HealthReminder {
+    pub(crate) const ALL:[Self;2]=[Self::Water,Self::Sit];
+    pub(crate) fn title(self)->&'static str {match self {Self::Water=>"喝水时间到了",Self::Sit=>crate::app::SIT_TITLE}}
+    pub(crate) fn label(self)->&'static str {match self {Self::Water=>"待喝水",Self::Sit=>"待活动"}}
+    pub(crate) fn id(self)->&'static str {match self {Self::Water=>"health-water",Self::Sit=>"health-sit"}}
+    pub(crate) fn icon(self,c:&Card,x:f32,y:f32,scale:f32) {
+        let c=&c.scaled(x,y,scale);
+        match self {
+            Self::Water=>{
+                c.poly(&[(x-7.0,y-1.0),(x+5.0,y-1.0),(x+3.5,y+8.0),(x-5.5,y+8.0)],theme::BLUE);
+                c.path(&[(x-9.0,y-10.0),(x-6.5,y+9.0),(x+4.5,y+9.0),(x+7.0,y-10.0)],1.6,theme::CYAN);
+                c.seg((x-9.0,y-10.0),(x+7.0,y-10.0),1.6,theme::CYAN);
+                c.path(&[(x+6.5,y-6.0),(x+10.5,y-6.0),(x+11.5,y-3.0),(x+10.0,y+2.0),(x+5.5,y+3.0)],1.6,theme::CYAN);
+                c.seg((x-5.0,y-6.5),(x-4.2,y-2.5),1.0,Color32::from_white_alpha(170));
+            },
+            Self::Sit=>crate::paint::chair(c,x,y,0.6,theme::SOFT_GREEN),
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct Alert {
@@ -18,12 +40,17 @@ pub(crate) struct Alert {
     pub duration: f64,
     pub bluetooth: Option<(crate::bt::DeviceKind, bool)>,
     pub meeting: Option<(crate::mail::Meeting, String)>,
+    pub unread: Option<crate::app::Unread>,
 }
 impl Alert {
+    pub(crate) fn health(&self)->Option<HealthReminder> {
+        if self.source!=AlertSource::Internal{return None;}
+        HealthReminder::ALL.into_iter().find(|kind|self.title==kind.title())
+    }
     pub(crate) fn messenger(&self)->Option<crate::app::Messenger>{
         match &self.source {
-            AlertSource::Wechat=>Some(crate::app::Messenger::Wechat),
-            AlertSource::External(id) if id=="QQ"=>Some(crate::app::Messenger::Qq),
+            AlertSource::Messenger(client)=>Some(*client),
+            AlertSource::External(id)=>crate::app::Messenger::from_notification_id(id).filter(|client|client.adapter().capture==crate::messenger::Capture::SystemToast),
             _=>None,
         }
     }
@@ -67,26 +94,7 @@ pub(crate) fn notice_badge(c:&Card,x:f32,y:f32,a:&Alert){
         device_icon(c,a.bluetooth.map_or(crate::bt::DeviceKind::Other,|v|v.0),x-7.5,y-7.5,15.0);
     }else{notice_icon(&c.scaled(x,y,0.85),x,y,a);}
 }
-pub(crate) fn messenger_icon(c:&Card,x:f32,y:f32,source:crate::app::Messenger){
-
-    let ink=Color32::from_gray(24);
-    if source==crate::app::Messenger::Wechat {
-        let back=Color32::from_rgb(70,203,123);
-        let front=Color32::from_rgb(145,235,165);
-        c.fill(x-10.,y-7.,14.,11.,5.5,back);
-        c.poly(&[(x-8.,y+1.),(x-8.,y+6.),(x-3.,y+2.)],back);
-        for dx in [-6.,-1.]{c.circle(x+dx,y-3.,0.9,ink);}
-        c.fill(x-2.,y-2.,13.,10.,5.,front);
-        c.poly(&[(x+5.,y+6.),(x+9.,y+10.),(x+8.,y+5.)],front);
-        for dx in [2.,7.]{c.circle(x+dx,y+1.,0.8,ink);}
-    }else{
-        let rect=c.rect(x-9.5,y-9.5,19.0,19.0);
-        let icon=egui::Image::new(egui::include_image!("../assets/qq-client.png"));
-        if let Ok(egui::load::TexturePoll::Ready{texture})=icon.load_for_size(c.ui.ctx(),rect.size()){
-            c.painter.image(texture.id,rect,egui::Rect::from_min_max(egui::Pos2::ZERO,egui::pos2(1.0,1.0)),Color32::WHITE);
-        }
-    }
-}
+pub(crate) fn messenger_icon(c:&Card,x:f32,y:f32,source:crate::app::Messenger){(source.adapter().paint_icon)(c,x,y);}
 fn notice_icon(c:&Card,x:f32,y:f32,a:&Alert) {
     if a.source!=AlertSource::Internal{crate::paint::bell(c,x,y,theme::WHITE,0.0);return;}
     match a.title.as_str() {
@@ -130,13 +138,8 @@ fn notice_icon(c:&Card,x:f32,y:f32,a:&Alert) {
                 c.poly(&[(x+0.5,y-0.8),(x+4.0,y-0.8),(x-1.0,y+4.5)],ink);
             }else{c.fill(x-8.0,y-3.5,12.0,7.0,1.0,ink);}
         },
-        "喝水时间到了"=>{
-            c.poly(&[(x-7.0,y-1.0),(x+5.0,y-1.0),(x+3.5,y+8.0),(x-5.5,y+8.0)],theme::BLUE);
-            c.path(&[(x-9.0,y-10.0),(x-6.5,y+9.0),(x+4.5,y+9.0),(x+7.0,y-10.0)],1.6,theme::CYAN);
-            c.seg((x-9.0,y-10.0),(x+7.0,y-10.0),1.6,theme::CYAN);
-            c.path(&[(x+6.5,y-6.0),(x+10.5,y-6.0),(x+11.5,y-3.0),(x+10.0,y+2.0),(x+5.5,y+3.0)],1.6,theme::CYAN);
-            c.seg((x-5.0,y-6.5),(x-4.2,y-2.5),1.0,Color32::from_white_alpha(170));
-        },
+        "喝水时间到了"=>HealthReminder::Water.icon(c,x,y,1.0),
+        crate::app::SIT_TITLE=>HealthReminder::Sit.icon(c,x,y,1.0),
         "待办到时间了"=>crate::paint::checklist(c,x,y,23.0,Color32::from_rgb(190,180,255),Color32::from_rgb(43,35,66)),
         "会议提醒"=>{
             let label=a.meeting.as_ref().map(|(_,source)|source.as_str()).unwrap_or("");
@@ -150,12 +153,50 @@ fn notice_icon(c:&Card,x:f32,y:f32,a:&Alert) {
 }
 
 impl App {
+    pub(crate) fn health_badges(&self)->Vec<HealthReminder> {
+        if self.fullscreen_hidden || !self.module_on(crate::app::WATER_PAGE){return Vec::new();}
+        HealthReminder::ALL.into_iter().filter(|kind|self.health_pending[*kind as usize]
+            && (match kind {HealthReminder::Water=>self.water.remind,HealthReminder::Sit=>self.settings.sit_remind})
+            && (self.open || !self.notice.as_ref().is_some_and(|a|a.health()==Some(*kind)))).collect()
+    }
+    pub(crate) fn confirm_health_reminder(&mut self,kind:HealthReminder) {
+        self.health_pending[kind as usize]=false;
+        crate::model::save_health_pending(self.health_pending);
+        match kind {HealthReminder::Water=>self.last_reminder=self.t,HealthReminder::Sit=>self.sit_start=self.t}
+        self.alerts.retain(|a|a.health()!=Some(kind));
+        if self.notice.as_ref().is_some_and(|a|a.health()==Some(kind)){self.notice=None;}
+        if self.hud_notice.as_ref().is_some_and(|a|a.health()==Some(kind)){self.hud_notice=None;}
+    }
     pub(crate) fn phase_secs(&self, phase: Phase) -> f32 {
         (match phase {
             Phase::Focus => self.settings.focus_minutes,
             Phase::Rest => self.settings.rest_minutes,
         }) as f32
             * 60.0
+    }
+    /// 已连续久坐的分钟数。
+    pub(crate) fn sat_minutes(&self) -> u32 {
+        ((self.t - self.sit_start).max(0.0) / 60.0) as u32
+    }
+    /// 下一次久坐提醒的时刻：从上次确认或起身起算满 sit_minutes。
+    pub(crate) fn sit_due(&self) -> f64 {
+        self.sit_start + self.settings.sit_minutes as f64 * 60.0
+    }
+    /// 「起身了」：久坐计时归零。
+    pub(crate) fn stood_up(&mut self) {
+        self.confirm_health_reminder(HealthReminder::Sit);
+        self.pet.react(PetState::Happy);
+        self.say("久坐计时已重新开始");
+    }
+    /// 现在是否在午休免打扰时段内（支持跨午夜；起止相同视为未设置）。
+    pub(crate) fn lunch_now(&self, env: &Env) -> bool {
+        let (a, b) = (self.settings.lunch_start, self.settings.lunch_end);
+        let m = env.hour() as u32 * 60 + env.minute();
+        self.settings.lunch_rest && a != b && if a < b { m >= a && m < b } else { m >= a || m < b }
+    }
+    /// 喝水和久坐提醒此刻能否弹出：在提醒时段内，且不在午休。
+    pub(crate) fn remind_window(&self, env: &Env) -> bool {
+        self.water_hours(env.hour() as u32) && !self.lunch_now(env)
     }
     pub(crate) fn water_hours(&self, hour: u32) -> bool {
         let (a, b) = (self.settings.water_start, self.settings.water_end);
@@ -200,6 +241,11 @@ impl App {
         system: bool,
     ) {
         let title = title.into();
+        if let Some(kind)=HealthReminder::ALL.into_iter().find(|kind|title==kind.title()) {
+            if self.health_pending[kind as usize]{return;}
+            self.health_pending[kind as usize]=true;
+            crate::model::save_health_pending(self.health_pending);
+        }
         let transient = matches!(
             title.as_str(),
             "系统音量" | "大写锁定" | "键盘输入语言" | "网络连接" | "电源已连接" | "已切换电池供电" | "蓝牙设备"
@@ -213,6 +259,7 @@ impl App {
             duration: if transient { 2.5 } else { 8.0 },
             bluetooth: None,
             meeting: None,
+            unread: None,
         };
         self.enqueue_alert(a, system);
     }
@@ -220,7 +267,7 @@ impl App {
         self.enqueue_alert(Alert {
             source: AlertSource::Internal,
             title: "会议提醒".into(), body: format!("{} · {} · {}", meeting.title, meeting.at, source),
-            page, at: self.t, duration: 12.0, bluetooth: None, meeting: Some((meeting, source)),
+            page, at: self.t, duration: 12.0, bluetooth: None, meeting: Some((meeting, source)), unread: None,
         }, true);
     }
     pub(crate) fn bluetooth_alert(&mut self, device: &crate::bt::Device, connected: bool) {
@@ -236,6 +283,7 @@ impl App {
             page: 5, at: self.t, duration: 2.5,
             bluetooth: Some((device.kind, connected)),
             meeting: None,
+            unread: None,
         };
         self.enqueue_alert(a, false);
     }
@@ -243,6 +291,7 @@ impl App {
         // 通知仅保存在本次运行的内存中。
         if a.source==AlertSource::Internal {self.history.push_front(a.clone());}
         self.history.truncate(50);
+        if self.fullscreen_hidden && a.health().is_some(){return;}
         if self.settings.notifications {
             if system && a.source==AlertSource::Internal {
                 let locale=self.settings.locale();
@@ -254,7 +303,7 @@ impl App {
             }
             let same_event=|old:&Alert| match (&a.meeting,&old.meeting) {
                 (Some((next,_)),Some((previous,_)))=>crate::calendar::dedupe_key(next)==crate::calendar::dedupe_key(previous),
-                _=>old.source==a.source && old.title==a.title && (a.is_hud() || old.body==a.body),
+                _=>old.source==a.source && old.title==a.title && old.unread==a.unread && (a.is_hud() || old.body==a.body),
             };
             if a.source!=AlertSource::Internal || a.title != "蓝牙设备" { self.alerts.retain(|old| !same_event(old)); }
             if (a.source!=AlertSource::Internal || a.title != "蓝牙设备") && self.notice.as_ref().is_some_and(same_event) {
@@ -272,18 +321,44 @@ impl App {
         self.pending_messengers.retain(|u|u.source!=source);
         self.clear_messenger_notices(source);
     }
-    /// 某个账号（进程）的窗口被打开：只清它自己；分不出账号的条目（pid 0）一并清掉。
+    /// 只清已查看的账号；无法确认账号的 QQ 提醒由用户明确关闭。
     pub fn viewed_client(&mut self,source:crate::app::Messenger,pid:u32){
-        self.pending_messengers.retain(|u|u.source!=source || pid!=0 && u.pid!=0 && u.pid!=pid);
+        self.pending_messengers.retain(|u|!u.viewed_by(source,pid));
+        if pid!=0{self.clear_account_notices(source,pid);}
+        if !source.adapter().keep_unidentified{self.clear_account_notices(source,0);}
         if !self.pending_messengers.iter().any(|u|u.source==source){self.clear_messenger_notices(source);}
+    }
+    pub fn confirm_messenger_open(&mut self,unread:crate::app::Unread,foreground:Option<(crate::app::Messenger,u32)>)->bool{
+        if unread.pid==0 || foreground!=Some((unread.source,unread.pid)){return false;}
+        self.viewed_client(unread.source,unread.pid);
+        true
+    }
+    pub fn discard_unread(&mut self,unread:crate::app::Unread){
+        if !self.pending_messengers.contains(&unread){return;}
+        self.pending_messengers.retain(|current|*current!=unread);
+        self.clear_account_notices(unread.source,unread.pid);
+        if !self.pending_messengers.iter().any(|current|current.source==unread.source){self.clear_messenger_notices(unread.source);}
+    }
+    fn clear_account_notices(&mut self,source:crate::app::Messenger,pid:u32){
+        let matches=|notice:&Alert|notice.unread.is_some_and(|u|u.source==source && u.pid==pid);
+        self.alerts.retain(|notice|!matches(notice));
+        if self.notice.as_ref().is_some_and(matches){self.notice=None;self.notification_bell_until=0.0;}
     }
     fn clear_messenger_notices(&mut self,source:crate::app::Messenger){
         self.alerts.retain(|a|a.messenger()!=Some(source));
         if self.notice.as_ref().is_some_and(|a|a.messenger()==Some(source)){self.notice=None;self.notification_bell_until=0.0;}
     }
     fn mark_messenger(&mut self,source:crate::app::Messenger,pid:u32,window:isize){
-        if let Some(u)=self.pending_messengers.iter_mut().find(|u|u.source==source && u.pid==pid){
-            if window!=0 {u.window=window;}
+        if let Some(index)=self.pending_messengers.iter().position(|u|u.source==source && u.pid==pid){
+            if window!=0 && self.pending_messengers[index].window!=window {
+                self.pending_messengers[index].window=window;
+                if source.adapter().capture==crate::messenger::Capture::Taskbar{
+                    let unread=self.pending_messengers[index];
+                    for alert in self.alerts.iter_mut().chain(self.notice.iter_mut()){
+                        if alert.unread.is_some_and(|old|old.source==source && old.pid==pid){alert.unread=Some(unread);}
+                    }
+                }else{self.clear_account_notices(source,pid);}
+            }
             return;
         }
         self.pending_messengers.push(crate::app::Unread{source,pid,window});
@@ -295,18 +370,32 @@ impl App {
     pub fn receive_wechat_reminder(&mut self){self.receive_wechat_reminder_from(0,0);}
     /// 微信窗口闪动：`pid` 是该账号的进程，`window` 是闪动的窗口。
     pub fn receive_wechat_reminder_from(&mut self,pid:u32,window:isize){
-        if !self.settings.wechat_notifications || !self.settings.notifications{return;}
-        self.mark_messenger(crate::app::Messenger::Wechat,pid,window);
-        self.notification_bell_at=self.t;
-        self.notification_bell_until=self.t+4.5;
-        self.enqueue_alert(Alert{source:AlertSource::Wechat,title:"微信".into(),body:"有新消息 · 请到微信查看".into(),page:usize::MAX,at:self.t,duration:4.5,bluetooth:None,meeting:None},false);
+        self.receive_messenger_reminder(crate::app::Unread{source:crate::app::Messenger::Wechat,pid,window});
     }
+    pub fn receive_messenger_reminder(&mut self,unread:crate::app::Unread){
+        let client=unread.source;
+        if client.adapter().capture!=crate::messenger::Capture::Taskbar || !client.enabled(&self.settings){return;}
+        let pending=self.pending_messengers.iter().any(|old|old.source==client && old.pid==unread.pid);
+        self.mark_messenger(client,unread.pid,unread.window);
+        if pending{return;}
+        self.notification_bell_at=self.t;self.notification_bell_until=self.t+4.5;
+        self.enqueue_alert(Alert{source:AlertSource::Messenger(client),title:client.name().into(),body:format!("有新消息 · 请到{}查看",client.name()),page:usize::MAX,at:self.t,duration:4.5,bluetooth:None,meeting:None,unread:Some(unread)},false);
+    }
+    pub fn set_messenger_status(&mut self,client:crate::app::Messenger,status:String){self.messenger_statuses.insert(client,status);}
+    pub fn messenger_status(&self,client:crate::app::Messenger)->&str{self.messenger_statuses.get(&client).map(String::as_str).unwrap_or("")}
     pub fn receive_notification(&mut self, app:String, id:String, body:String){
-        if !self.settings.read_notifications || id.is_empty() || (self.settings.qq_only && id!="QQ"){return;}
-        // islo自己发出的系统提醒会被通知中心回传；已在历史里的同一内容不再入队，避免重复显示。
-        if self.history.iter().any(|a|format!("{} · {}",a.title,a.body)==body){return;}
+        self.receive_notification_from(app,id,body,None);
+    }
+    pub fn receive_notification_from(&mut self,app:String,id:String,body:String,unread:Option<crate::app::Unread>){
+        if !self.settings.read_notifications || id.is_empty() || !crate::messenger::NotificationFilter::for_settings(&self.settings).allows(&id){return;}
+        if crate::messenger::suppresses_toast(&app,&id,crate::messenger::toast_suppression(&self.settings)){return;}
+        let client=crate::app::Messenger::from_notification_id(&id).filter(|client|client.adapter().capture==crate::messenger::Capture::SystemToast);
+        let id=client.map(|client|client.adapter().notification_id.to_string()).unwrap_or(id);
+        // 岛仔自己发出的系统提醒会被通知中心回传；已在历史里的同一内容不再入队，避免重复显示。
+        if crate::messenger::Messenger::from_notification_id(&id).is_none() && self.history.iter().any(|a|format!("{} · {}",a.title,a.body)==body){return;}
         if !self.notification_apps.observe(&id,&app) || !self.settings.notifications{return;}
-        if id=="QQ"{self.mark_messenger(crate::app::Messenger::Qq,0,0);}
+        let unread=client.map(|client|unread.filter(|u|u.source==client && u.pid!=0).unwrap_or(crate::app::Unread::of(client)));
+        if let Some(unread)=unread{self.mark_messenger(unread.source,unread.pid,unread.window);}
         self.notification_bell_at=self.t;
         self.notification_bell_until=self.t+4.5;
         let title=app.chars().filter(|c|!c.is_control()).take(80).collect();
@@ -315,21 +404,29 @@ impl App {
             if let Some(code)=crate::otp::extract("",&text,&[]) {text=crate::mail_privacy::mask(&text,&code.text);}
             text
         }else{"收到新通知 · 内容已隐藏".into()};
-        self.enqueue_alert(Alert{source:AlertSource::External(id),title,body,page:usize::MAX,at:self.t,duration:4.5,bluetooth:None,meeting:None},false);
+        self.enqueue_alert(Alert{source:AlertSource::External(id),title,body,page:usize::MAX,at:self.t,duration:4.5,bluetooth:None,meeting:None,unread},false);
+    }
+    pub fn reveal_messenger_notice(&mut self,unread:crate::app::Unread){
+        if !unread.source.adapter().dismiss_unread || !self.pending_messengers.contains(&unread){return;}
+        let body=if unread.pid==0{"消息账号暂无法确认"}else{"暂时无法打开对应窗口"};
+        let source=if unread.source.adapter().capture==crate::messenger::Capture::Taskbar{AlertSource::Messenger(unread.source)}else{AlertSource::External(unread.source.adapter().notification_id.into())};
+        self.notice=Some(Alert{source,title:unread.source.name().into(),body:body.into(),page:usize::MAX,at:self.t,duration:4.5,bluetooth:None,meeting:None,unread:Some(unread)});
+        self.notification_bell_at=self.t;self.notification_bell_until=self.t+4.5;
     }
     pub(crate) fn tick_alerts(&mut self) {
-        self.pending_messengers.retain(|u|self.settings.notifications && match u.source {
-            crate::app::Messenger::Wechat=>self.settings.wechat_notifications,
-            crate::app::Messenger::Qq=>self.settings.read_notifications && self.notification_apps.items.iter().any(|(key,_,on)|key=="QQ" && *on),
-        });
+        self.pending_messengers.retain(|u|u.source.enabled(&self.settings) && (u.source.adapter().capture!=crate::messenger::Capture::SystemToast
+            || self.notification_apps.items.iter().any(|(key,_,on)|key==u.source.adapter().notification_id && *on)));
         let allowed=|a:&Alert|match &a.source {
-            AlertSource::Internal=>true,
-            AlertSource::Wechat=>self.settings.wechat_notifications && self.settings.notifications,
-            AlertSource::External(id)=>self.settings.read_notifications && (!self.settings.qq_only || id=="QQ") && self.settings.notifications && self.notification_apps.items.iter().any(|(key,_,on)|key==id && *on),
+            AlertSource::Internal=>!self.fullscreen_hidden || a.health().is_none(),
+            AlertSource::Messenger(client)=>client.enabled(&self.settings),
+            AlertSource::External(id)=>self.settings.read_notifications && crate::messenger::NotificationFilter::for_settings(&self.settings).allows(id) && self.settings.notifications && !crate::messenger::suppresses_toast(&a.title,id,crate::messenger::toast_suppression(&self.settings)) && self.notification_apps.items.iter().any(|(key,_,on)|key==id && *on),
         };
         self.alerts.retain(&allowed);
         if self.notice.as_ref().is_some_and(|a|!allowed(a)){self.notice=None;}
         if self.hud_notice.as_ref().is_some_and(|a|!allowed(a)){self.hud_notice=None;}
+        if self.fullscreen_hidden {
+            self.pending.retain(|cmd|!matches!(cmd,Cmd::Notify(title,_)if HealthReminder::ALL.into_iter().any(|kind|title==kind.title())));
+        }
         if !self.settings.notification_preview {
             for a in self.alerts.iter_mut().chain(self.notice.iter_mut()).chain(self.hud_notice.iter_mut()) {
                 if matches!(&a.source,AlertSource::External(_)){a.body="收到新通知 · 内容已隐藏".into();}
@@ -358,7 +455,10 @@ impl App {
             nc.centered_text(44.0,14.0,locale.text(&a.title),11.0,W::Semibold,theme::WHITE,H::Left);
             nc.centered_text(44.0,30.0,&nc.fit(&locale.text(&a.body),10.5,W::Regular,154.0),10.5,W::Regular,theme::GRAY,H::Left);
             if notice_button(&nc,206.0,12.0,52.0,locale.text("查看"),"messenger-view"){_cmds.push(Cmd::ViewMessenger(self.latest_unread(source)));}
-            if notice_button(&nc,265.0,12.0,52.0,locale.text("关闭"),"messenger-dismiss"){self.notice=None;self.notification_bell_until=0.0;}
+            if notice_button(&nc,265.0,12.0,52.0,locale.text("关闭"),"messenger-dismiss"){
+                if source.adapter().dismiss_unread{if let Some(unread)=a.unread{self.discard_unread(unread);}}
+                self.notice=None;self.notification_bell_until=0.0;
+            }
             return;
         }
         if a.source!=AlertSource::Internal {
@@ -446,15 +546,17 @@ impl App {
                 nc.centered_text(HUD_W-16.0,19.0,&nc.fit(&locale.status(body),10.5,W::Regular,92.0),10.5,W::Regular,if a.title=="大写锁定"&&a.body=="已开启"||a.title=="网络连接"&&a.body.contains("已连接"){theme::GREEN}else{theme::GRAY},H::Right);
             }
         } else {
-            let is_water=a.page==2;let is_focus=a.page==1;let is_power=a.title=="电量偏低";
+            let is_sit=a.health()==Some(HealthReminder::Sit);let is_water=a.health()==Some(HealthReminder::Water);let is_focus=a.page==1;let is_power=a.title=="电量偏低";
             notice_icon(&nc,22.0,22.0,a);
-            let max=if is_water{125.0}else{195.0};
-            nc.centered_text(43.0,14.0,&nc.fit(locale.text(&a.title),11.0,W::Semibold,max),11.0,W::Semibold,theme::WHITE,H::Left);
-            let body=if a.title=="待办到时间了"||a.title=="新邮件"{a.body.clone()}else{locale.status(&a.body)};
-            nc.centered_text(43.0,30.0,&nc.fit(&body,10.5,W::Regular,max),10.5,W::Regular,theme::GRAY,H::Left);
-            if is_water {
-                if notice_button(&nc,181.0,12.0,62.0,locale.text("稍后"),"water-snooze"){self.last_reminder=self.t-self.settings.water_minutes as f64*60.0+600.0;self.notice=None;}
-                if notice_button(&nc,250.0,12.0,68.0,locale.text("喝一口"),"water-confirm"){self.notice=None;self.drink_water();}
+            let max=if is_water||is_sit{125.0}else{195.0};
+            nc.centered_text(43.0,14.0,&nc.fit(&a.title,11.0,W::Semibold,max),11.0,W::Semibold,theme::WHITE,H::Left);
+            nc.centered_text(43.0,30.0,&nc.fit(&a.body,10.5,W::Regular,max),10.5,W::Regular,theme::GRAY,H::Left);
+            if is_sit {
+                if notice_button(&nc,181.0,12.0,62.0,"知道了","sit-confirm-read"){self.confirm_health_reminder(HealthReminder::Sit);}
+                if notice_button(&nc,250.0,12.0,68.0,"起身了","sit-confirm"){self.notice=None;self.stood_up();}
+            }else if is_water {
+                if notice_button(&nc,181.0,12.0,62.0,"知道了","water-confirm-read"){self.confirm_health_reminder(HealthReminder::Water);}
+                if notice_button(&nc,250.0,12.0,68.0,"喝一口","water-confirm"){self.notice=None;self.drink_water();}
             }else{
                 let label=if is_focus{locale.text("开始")}else if is_power{locale.text("知道了")}else{locale.text("查看")};
                 if notice_button(&nc,257.0,12.0,60.0,label,"notice-action"){
@@ -468,6 +570,9 @@ impl App {
                         }
                     }else{self.settings_tab=6;self.open_settings();}
                 }
+            }
+            if let Some(kind)=a.health() {
+                if nc.hit(0.0,0.0,175.0,44.0,"health-notice-confirm").clicked(){self.confirm_health_reminder(kind);}
             }
         }
     }
@@ -531,7 +636,7 @@ impl App {
         self.water.drink(amount, hour);
         let amount = self.water.drunk_ml.saturating_sub(before);
         self.last_drink = Some((amount, hour));
-        self.last_reminder = self.t;
+        self.confirm_health_reminder(HealthReminder::Water);
         self.pet.react(PetState::Satisfied);
         self.say(format!("已记录 {amount} ml"));
         if was < 100.0 && self.water.percent() >= 100.0 {
@@ -639,7 +744,7 @@ mod tests {
 
     #[test]
     fn settings_groups_keep_every_page_reachable() {
-        let groups = ["常规", "音乐与歌词", "专注与饮水", "专注与饮水", "待办与置物", "待办与置物", "通知、邮箱与日程", "通知、邮箱与日程", "通知、邮箱与日程", "关于", "页面管理", "AI 额度", "世界时钟"];
+        let groups = ["常规", "音乐与歌词", "专注与饮水", "专注与饮水", "待办与置物", "待办与置物", "通知、邮箱与日程", "通知、邮箱与日程", "通知、邮箱与日程", "关于", "页面管理", "AI 额度", "世界时钟", "天气"];
         for (tab, expected) in groups.iter().enumerate() {
             let matches: Vec<_> = SETTINGS_GROUPS.iter().filter(|(_,start,end)| (*start..=*end).contains(&tab)).collect();
             assert_eq!(matches.len(), 1, "页面 {tab} 必须且只能属于一个分组");
@@ -696,6 +801,7 @@ mod tests {
 pub(crate) struct TaskDraft {index:usize,original:String,text:String,due:String,error:String,focused:bool,reminder_only:bool,pub(crate) repeat:u8,pub(crate) picker:crate::task_picker::ReminderPicker}
 impl App {
     pub(crate) fn open_task_dialog(&mut self,index:usize){
+        self.todo_choosing=false;
         if let Some(task)=self.todos.items.get(index){
             let draft=TaskDraft{index,original:task.text.clone(),text:task.text.clone(),due:task.due.clone().unwrap_or_default(),error:String::new(),focused:false,reminder_only:false,repeat:task.repeat,picker:crate::task_picker::ReminderPicker::new(task.due.as_deref())};
             self.show_page(4);self.task_dialog=Some(draft);
@@ -817,34 +923,148 @@ fn setting_button(c:&Card,x:f32,y:f32,w:f32,text:&str,on:bool,id:&str)->bool {
     b.text(x+w/2.0,y+13.3,text,10.5,W::Semibold,theme::WHITE,H::Center);
     r.clicked()
 }
+fn hhmm(m:u32)->String{format!("{:02}:{:02}",m/60%24,m%60)}
+/// 岛内小开关（与健康页右上开关同款）。
+fn island_switch(c:&Card,x:f32,y:f32,on:bool,id:&str)->bool{
+    let r=c.hit(x-2.0,y-2.0,38.0,24.0,id);
+    let (hv,_)=c.hover_t(&r);
+    let track=if on{theme::SIT_GREEN}else{Color32::from_rgb(58,58,62)};
+    c.fill(x,y,34.0,20.0,10.0,crate::paint::mix(track,theme::WHITE,hv*0.08));
+    c.circle(if on{x+24.0}else{x+10.0},y+10.0,8.0,theme::WHITE);
+    r.clicked()
+}
+impl App {
+    fn health_time_summary(&self)->String{
+        let s=&self.settings;
+        let hours=format!("{:02}:00–{:02}:00",s.water_start,s.water_end);
+        if s.lunch_rest{format!("{hours} · 午休 {}–{}",hhmm(s.lunch_start),hhmm(s.lunch_end))}else{hours}
+    }
+    /// 「提醒时段」二级页：提醒时段起止、午休开关、午休起止（15 分钟一档），喝水和久坐共用。
+    fn health_time_page(&mut self,c:&Card){
+        let row_y=|i:usize|38.0+i as f32*22.0;
+        for i in 1..4{c.fill(44.0,row_y(i)-2.0,326.0,1.0,0.5,Color32::from_rgb(28,28,31));}
+        let y=row_y(0);
+        c.text(44.0,y+13.0,"提醒时段",10.5,W::Regular,theme::GRAY,H::Left);
+        c.text(250.0,y+13.0,"至",10.5,W::Regular,theme::GRAY,H::Center);
+        for i in 0..2{
+            let hour=if i==0{&mut self.settings.water_start}else{&mut self.settings.water_end};
+            let value=egui::DragValue::new(hour).range(0..=if i==0{23}else{24})
+                .custom_formatter(|v,_|format!("{:02}:00",v as u32))
+                .custom_parser(|t|{let t=t.trim();t.strip_suffix(":00").or_else(||t.strip_suffix("：00")).unwrap_or(t).parse::<u32>().ok().map(|v|v as f64)});
+            let (d,field)=stepper(c,if i==0{238.0}else{370.0},y,value,&format!("hour-{i}"));
+            if field.gained_focus(){self.pending.push(Cmd::Focus);}self.settings_editing|=field.has_focus();
+            if d!=0{let hour=if i==0{&mut self.settings.water_start}else{&mut self.settings.water_end};*hour=(*hour as i32+d).rem_euclid(24) as u32;}
+        }
+        let y=row_y(1);
+        c.text(44.0,y+13.0,"午休不提醒",10.5,W::Regular,theme::GRAY,H::Left);
+        if island_switch(c,336.0,y-0.5,self.settings.lunch_rest,"lunch-rest"){self.settings.lunch_rest=!self.settings.lunch_rest;}
+        let y=row_y(2);
+        let on=self.settings.lunch_rest;
+        let lc=c.faded(if on{1.0}else{0.35});let lc=if on{lc}else{lc.ghost()};
+        lc.text(44.0,y+13.0,"午休时间",10.5,W::Regular,theme::GRAY,H::Left);
+        lc.text(250.0,y+13.0,"至",10.5,W::Regular,theme::GRAY,H::Center);
+        for i in 0..2{
+            let minute=if i==0{&mut self.settings.lunch_start}else{&mut self.settings.lunch_end};
+            let value=egui::DragValue::new(minute).range(0..=1439).speed(1.0).custom_formatter(|v,_|hhmm(v as u32))
+                .custom_parser(|t|{let (h,m)=t.trim().split_once([':','：'])?;Some((h.parse::<u32>().ok()?.min(23)*60+m.parse::<u32>().ok()?.min(59)) as f64)});
+            let (d,field)=stepper(&lc,if i==0{238.0}else{370.0},y,value,&format!("lunch-{i}"));
+            if field.gained_focus(){self.pending.push(Cmd::Focus);}self.settings_editing|=field.has_focus();
+            if d!=0{let minute=if i==0{&mut self.settings.lunch_start}else{&mut self.settings.lunch_end};*minute=(*minute as i32+d*15).rem_euclid(1440) as u32;}
+        }
+        c.text(44.0,row_y(3)+13.0,"喝水和久坐提醒都只在提醒时段内、午休以外弹出",10.5,W::Regular,theme::GRAY,H::Left);
+    }
+}
+fn island_number_field(c:&Card,rect:Rect,value:egui::DragValue<'_>,id:impl std::hash::Hash)->egui::Response {
+    let mut ui=egui::Ui::new(c.ui.ctx().clone(),egui::Id::new(id),egui::UiBuilder::new().layer_id(c.ui.layer_id()).max_rect(rect).style(c.ui.style().clone()));
+    ui.set_clip_rect(c.painter.clip_rect());ui.set_opacity(c.painter.opacity());if !c.live{ui.disable();}
+    ui.spacing_mut().interact_size=rect.size();ui.spacing_mut().button_padding=egui::vec2(2.0,1.0);
+    ui.style_mut().drag_value_text_style=egui::TextStyle::Body;
+    ui.style_mut().text_styles.insert(egui::TextStyle::Body,c.font(11.0,W::Bold));
+    ui.style_mut().explanation_tooltips=false;
+    ui.visuals_mut().widgets.inactive.weak_bg_fill=Color32::TRANSPARENT;
+    crate::quota_ui::bar_tooltip(ui.put(rect,value.update_while_editing(false)),"点击输入数值".into())
+}
+/// 加减器：[−] 可输入数值 [+]，右缘对齐到 right。
+fn stepper(c:&Card,right:f32,y:f32,value:egui::DragValue<'_>,id:&str)->(i32,egui::Response) {
+    let (w,vw)=(25.0,58.0);
+    let x=right-w*2.0-vw;
+    let field=island_number_field(c,c.rect(x+w,y,vw,19.0),value,("health-number",id));
+    let delta=if setting_button(c,x,y,w,"−",false,&format!("{id}-minus")){-1}
+        else if setting_button(c,right-w,y,w,"+",false,&format!("{id}-plus")){1}else{0};
+    (delta,field)
+}
 impl App {
     pub(crate) fn page_settings(&mut self,c:&Card) {
         let locale=self.settings.locale();
-        let help=match self.settings_category{0=>locale.text("外观与系统"),1=>locale.text("调整饮水量与提醒时间"),2=>locale.text("调整每个阶段的时长"),_=>locale.text("通知")};
-        c.text(44.0,44.0,help,10.5,W::Regular,theme::GRAY,H::Left);
+        let help=match self.settings_category{0=>"外观与系统",1=>"调整喝水、久坐与提醒时段",2=>"点击分钟数可直接输入，也可用加减微调",_=>"通知"};
+        if self.settings_category!=1{c.text(44.0,44.0,help,10.5,W::Regular,theme::GRAY,H::Left);}
         let before=format!("{:?}",self.settings);
+        self.settings_editing=false;
         match self.settings_category {
             0=>{
                 let choices=[(locale.text("吉祥物"),self.settings.pet),(locale.text("极简刘海"),self.settings.minimal),(locale.text("系统提示"),self.settings.system_hud),(locale.text("全屏隐藏"),self.settings.hide_fullscreen)];
                 for (i,(name,on)) in choices.iter().enumerate(){let x=42.0+(i%2) as f32*169.0;let y=57.0+(i/2) as f32*27.0;let text=format!("{}  {}",name,if *on{locale.text("开")}else{locale.text("关")});if setting_button(c,x,y,158.0,&text,*on,&format!("general-{i}")){match i{0=>self.set_pet(!self.settings.pet),1=>self.set_minimal(!self.settings.minimal),2=>self.settings.system_hud=!self.settings.system_hud,_=>self.settings.hide_fullscreen=!self.settings.hide_fullscreen}}}
                 c.text(42.0,116.0,locale.text("islo收起时常驻；极简模式保留细线"),10.5,W::Regular,theme::GRAY,H::Left);
             }
+            1 if self.health_time=>self.health_time_page(c),
             1=>{
-                let rows=[(locale.text("每次"),format!("{} ml",self.settings.serving_ml)),(locale.text("间隔"),locale.format("{0} 分",&[("0",format!("{}",self.settings.water_minutes))])),(locale.text("目标"),format!("{:.1} L",self.water.goal_ml as f32/1000.0))];
-                for (i,(label,value)) in rows.iter().enumerate(){let y=53.0+i as f32*23.0;c.text(44.0,y+13.0,label,10.5,W::Regular,theme::GRAY,H::Left);c.text(148.0,y+13.0,value,10.5,W::Semibold,theme::WHITE,H::Center);
-                    if setting_button(c,90.0,y,25.0,"−",false,&format!("water-minus-{i}")){match i{0=>self.settings.serving_ml=self.settings.serving_ml.saturating_sub(50).max(50),1=>self.settings.water_minutes=self.settings.water_minutes.saturating_sub(5).max(5),_=>{self.water.goal_ml=self.water.goal_ml.saturating_sub(250).max(500);self.water.save();}}}
-                    if setting_button(c,180.0,y,25.0,"+",false,&format!("water-plus-{i}")){match i{0=>self.settings.serving_ml=(self.settings.serving_ml+50).min(1000),1=>self.settings.water_minutes=(self.settings.water_minutes+5).min(180),_=>{self.water.goal_ml=(self.water.goal_ml+250).min(6000);self.water.save();}}}}
-                c.text(223.0,66.0,locale.text("提醒时段"),10.5,W::Semibold,theme::WHITE,H::Left);
-                for i in 0..2 {let y=73.0+i as f32*23.0;let hour=if i==0{self.settings.water_start}else{self.settings.water_end};c.text(250.0,y+13.0,&format!("{:02}:00",hour),10.5,W::Bold,theme::WHITE,H::Center);
-                    if setting_button(c,287.0,y,25.0,"−",false,&format!("hour-minus-{i}")){if i==0{self.settings.water_start=(hour+23)%24}else{self.settings.water_end=(hour+23)%24}}
-                    if setting_button(c,318.0,y,25.0,"+",false,&format!("hour-plus-{i}")){if i==0{self.settings.water_start=(hour+1)%24}else{self.settings.water_end=(hour+1)%24}}}
+                // 与健康页同一套切换（标题旁的水滴 / 椅子）；四行一列，标签靠左、加减器靠右对齐。
+                // 喝水三行、久坐一行加两句说明；最后一行「提醒时段」两边共用，位置不变。
+                let sv=self.sit_view_t.pos.clamp(0.0,1.0);
+                let row_y=|i:usize|38.0+i as f32*22.0;
+                for i in 1..4{c.fill(44.0,row_y(i)-2.0,326.0,1.0,0.5,Color32::from_rgb(28,28,31));}
+                if sv<0.99{
+                    let wc=c.faded(1.0-sv);let wc=if self.sit_mode{wc.ghost()}else{wc};
+                    for (i,label) in ["每日目标","每次记录","提醒间隔"].iter().enumerate(){
+                        wc.text(44.0,row_y(i)+13.0,label,10.5,W::Regular,theme::GRAY,H::Left);
+                        let goal=self.water.goal_ml;let mut liters=goal as f32/1000.0;
+                        let value=match i {
+                            0=>egui::DragValue::new(&mut liters).range(0.5..=6.0).speed(0.25).suffix(" L").min_decimals(1).max_decimals(2),
+                            1=>egui::DragValue::new(&mut self.settings.serving_ml).range(50..=1000).speed(50.0).suffix(" ml"),
+                            _=>egui::DragValue::new(&mut self.settings.water_minutes).range(5..=180).speed(5.0).suffix(" 分钟"),
+                        };
+                        let (d,field)=stepper(&wc,370.0,row_y(i),value,&format!("water-{i}"));
+                        if field.gained_focus(){self.pending.push(Cmd::Focus);}self.settings_editing|=field.has_focus();
+                        match i {
+                            0=>{self.water.goal_ml=((liters*1000.0).round() as i32+d*250).clamp(500,6000) as u32;if self.water.goal_ml!=goal{self.water.save();}}
+                            1=>self.settings.serving_ml=(self.settings.serving_ml as i32+d*50).clamp(50,1000) as u32,
+                            _=>self.settings.water_minutes=(self.settings.water_minutes as i32+d*5).clamp(5,180) as u32,
+                        }
+                    }
+                }
+                if sv>0.01{
+                    let sc=c.faded(sv);let sc=if self.sit_mode{sc}else{sc.ghost()};
+                    sc.text(44.0,row_y(0)+13.0,"坐满多久提醒",10.5,W::Regular,theme::GRAY,H::Left);
+                    let value=egui::DragValue::new(&mut self.settings.sit_minutes).range(15..=180).speed(5.0).suffix(" 分钟");
+                    let (d,field)=stepper(&sc,370.0,row_y(0),value,"sit");
+                    if field.gained_focus(){self.pending.push(Cmd::Focus);}self.settings_editing|=field.has_focus();
+                    if d!=0{self.settings.sit_minutes=(self.settings.sit_minutes as i32+d*5).clamp(15,180) as u32;}
+                    sc.text(44.0,row_y(1)+13.0,"专注计时进行中不打扰，专注结束后再提醒",10.5,W::Regular,theme::GRAY,H::Left);
+                    sc.text(44.0,row_y(2)+13.0,"提醒后常驻，点击确认或起身后重新计时",10.5,W::Regular,theme::GRAY,H::Left);
+                }
+                // 最后一行两边共用：提醒时段 + 午休的摘要，点进二级页修改。
+                let y=row_y(3);
+                let r=c.hit(40.0,y-2.0,334.0,22.0,"health-time").on_hover_text("设置提醒时段和午休免打扰");
+                let (hv,_)=c.hover_t(&r);
+                if hv>0.0{c.fill(40.0,y-2.0,334.0,22.0,8.0,Color32::from_white_alpha((hv*14.0) as u8));}
+                c.text(44.0,y+13.0,"提醒时段",10.5,W::Regular,theme::GRAY,H::Left);
+                c.text(356.0,y+13.0,&self.health_time_summary(),10.5,W::Semibold,theme::WHITE,H::Right);
+                c.text(366.0,y+13.5,"›",14.0,W::Bold,theme::GRAY,H::Center);
+                if r.clicked(){self.health_time=true;}
             }
             2=>{
-                let values=[self.settings.focus_minutes,self.settings.rest_minutes];
-                for (i,name) in [locale.text("专注"),locale.text("休息")].iter().enumerate(){let y=53.0+i as f32*23.0;c.text(48.0,y+13.0,name,10.5,W::Regular,theme::GRAY,H::Left);c.text(206.0,y+13.0,&locale.format("{0} 分钟",&[("0",format!("{}",values[i]))]),11.0,W::Bold,theme::WHITE,H::Center);
-                    if setting_button(c,131.0,y,27.0,"−",false,&format!("focus-minus-{i}")){if i==0{self.settings.focus_minutes=values[i].saturating_sub(1).max(1)}else{self.settings.rest_minutes=values[i].saturating_sub(1).max(1)}}
-                    if setting_button(c,255.0,y,27.0,"+",false,&format!("focus-plus-{i}")){if i==0{self.settings.focus_minutes=(values[i]+1).min(180)}else{self.settings.rest_minutes=(values[i]+1).min(60)}}}
-                c.text(315.0,93.0,locale.text("下次生效"),10.5,W::Regular,theme::GRAY,H::Center);
+                for (i,name) in ["专注","休息"].iter().enumerate(){
+                    let y=53.0+i as f32*23.0;
+                    c.text(48.0,y+13.0,name,10.5,W::Regular,theme::GRAY,H::Left);
+                    let value=if i==0{&mut self.settings.focus_minutes}else{&mut self.settings.rest_minutes};
+                    let max=if i==0{180}else{60};let rect=c.rect(168.0,y,76.0,19.0);
+                    let field=island_number_field(c,rect,egui::DragValue::new(value).range(1..=max).suffix(" 分钟"),("focus-duration",i));
+                    if field.gained_focus(){self.pending.push(Cmd::Focus);}
+                    self.settings_editing|=field.has_focus();
+                    if setting_button(c,131.0,y,27.0,"−",false,&format!("focus-minus-{i}")){*value=value.saturating_sub(1).max(1);}
+                    if setting_button(c,255.0,y,27.0,"+",false,&format!("focus-plus-{i}")){*value=(*value+1).min(max);}
+                }
+                c.text(315.0,93.0,"下次生效",10.5,W::Regular,theme::GRAY,H::Center);
             }
             _=>{
                 if setting_button(c,43.0,56.0,152.0,if self.settings.notifications{locale.text("提醒 · 开")}else{locale.text("提醒 · 关")},self.settings.notifications,"set-notice"){self.settings.notifications=!self.settings.notifications;}
@@ -853,7 +1073,7 @@ impl App {
                 let status=c.fit(&self.listener_status,10.5,W::Regular,170.0);c.text(210.0,97.0,&status,10.5,W::Regular,theme::GRAY,H::Left);
             }
         }
-        if before!=format!("{:?}",self.settings){self.settings.save();self.last_reminder=self.t;}
+        if before!=format!("{:?}",self.settings){self.settings.save();}
     }
 }
 
@@ -943,6 +1163,12 @@ pub(crate) fn settings_card(ui:&mut egui::Ui,add:impl FnOnce(&mut egui::Ui)) {
         .corner_radius(10.0).inner_margin(egui::Margin::symmetric(16,12))
         .show(ui,|ui|{ui.set_min_width(ui.available_width());ui.spacing_mut().item_spacing.y=8.0;add(ui);});
 }
+/// 设置分页对应的功能模块（页面序号）；常规、通知、关于、页面管理不属于任何模块。
+pub(crate) fn settings_tab_module(tab:usize)->Option<usize>{
+    use crate::app::*;
+    match tab {1=>Some(MUSIC_PAGE),2=>Some(FOCUS_PAGE),3=>Some(WATER_PAGE),4=>Some(TODO_PAGE),5=>Some(SHELF_PAGE),7=>Some(MAIL_PAGE),8=>Some(CALENDAR_PAGE),11=>Some(QUOTA_PAGE),12=>Some(WORLD_CLOCK_PAGE),13=>Some(WEATHER_PAGE),_=>None}
+}
+
 pub(crate) fn settings_label(ui:&mut egui::Ui,text:&str){
     let ctx=&ui.ctx().clone();
     ui.add_space(9.0);
@@ -992,26 +1218,48 @@ fn number_stepper<N:egui::emath::Numeric>(ui:&mut egui::Ui,value:&mut N,min:N,ma
     });
     changed
 }
+/// 时刻加减器（一天中的分钟数，15 分钟一档，跨午夜循环），中间可直接输入 12:30。
+fn time_stepper(ui:&mut egui::Ui,value:&mut u32,id:&str)->bool{
+    let ctx=&ui.ctx().clone();
+    let mut changed=false;
+    ui.push_id(id,|ui|{
+        ui.spacing_mut().item_spacing.x=6.0;
+        ui.spacing_mut().button_padding=egui::vec2(4.0,2.0);
+        let button=|text|egui::Button::new(egui::RichText::new(text).size(16.0).color(settings_color(ctx,Color32::WHITE,Color32::from_rgb(30,34,41))))
+            .fill(settings_color(ctx,Color32::from_rgb(48,48,51),Color32::from_rgb(229,232,238))).stroke(egui::Stroke::NONE).corner_radius(13.0);
+        if ui.add(button("−").min_size(egui::vec2(26.0,26.0))).on_hover_text("提前 15 分钟").clicked(){*value=(*value+1440-15)%1440;changed=true;}
+        let field=ui.add_sized([56.0,28.0],egui::DragValue::new(value).range(0..=1439).speed(1.0)
+            .custom_formatter(|v,_|{let m=v as u32;format!("{:02}:{:02}",m/60,m%60)})
+            .custom_parser(|t|{let (h,m)=t.trim().split_once([':','：'])?;Some((h.parse::<u32>().ok()?.min(23)*60+m.parse::<u32>().ok()?.min(59)) as f64)}));
+        changed|=field.changed();
+        if ui.add(button("+").min_size(egui::vec2(26.0,26.0))).on_hover_text("推后 15 分钟").clicked(){*value=(*value+15)%1440;changed=true;}
+    });
+    changed
+}
 fn setting_choices(ui:&mut egui::Ui,title:&str,value:&mut u32,values:[u32;3],unit:&str){
     let labels=values.map(|v|format!("{v} {unit}"));
     let options:Vec<(u32,&str)>=values.iter().zip(labels.iter()).map(|(v,l)|(*v,l.as_str())).collect();
     settings_control_row_right(ui,title,|ui|{settings_segmented(ui,value,&options,62.0);});
 }
-const SETTINGS_GROUPS: [(&str,usize,usize);9] = [
+const SETTINGS_GROUPS: [(&str,usize,usize);10] = [
     ("常规",0,0), ("页面管理",10,10), ("音乐与歌词",1,1), ("专注与饮水",2,3),
-    ("待办与置物",4,5), ("通知、邮箱与日程",6,8), ("世界时钟",12,12), ("AI 额度",11,11), ("关于",9,9),
+    ("待办与置物",4,5), ("通知、邮箱与日程",6,8), ("AI 额度",11,11), ("世界时钟",12,12), ("天气",13,13), ("关于",9,9),
 ];
 
 impl App {
     pub fn settings_ui(&mut self,ctx:&egui::Context,autostart:bool){
         let locale=self.settings.locale();
         crate::i18n::set_locale(ctx,locale);
+        if !self.settings_open{self.window_layout().close();self.weather_source.close();}
         self.updates.poll(ctx);
         self.updates.dialog_ui(ctx);
         if !self.settings_open{return;}
         let id=egui::ViewportId::from_hash_of("islo-settings");
         let focus_requested=std::mem::take(&mut self.settings_focus_requested);
+        let opening=self.window_layout().open();
         ctx.show_viewport_immediate(id,egui::ViewportBuilder::default().with_title(locale.text("islo设置")).with_icon(theme::app_icon()).with_inner_size([690.0,560.0]).with_min_inner_size([600.0,450.0]).with_visible(false).with_active(false).with_window_level(egui::WindowLevel::Normal),|ctx,_|{
+            let restored=opening && self.window_layout().restore(ctx);
+            if !restored{self.window_layout().observe(ctx);}
             let dark=self.settings.settings_theme.dark(crate::settings_theme::system_dark(ctx));
             let original_style=ctx.style();
             let mut style=(*original_style).clone();
@@ -1027,7 +1275,7 @@ impl App {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             }
-            if ctx.input(|i|i.viewport().close_requested()){self.settings_open=false;}
+            if ctx.input(|i|i.viewport().close_requested()){self.settings_open=false;self.quota_close_connection();}
             let before=format!("{:?}",self.settings);
             egui::SidePanel::left("settings-sidebar").resizable(false).exact_width(180.0).frame(egui::Frame::new().fill(settings_color(ctx,Color32::from_rgb(29,29,32),Color32::from_rgb(237,239,243))).stroke(egui::Stroke::new(1.0,settings_color(ctx,Color32::from_rgb(42,42,45),Color32::from_rgb(216,219,225)))).inner_margin(egui::Margin::symmetric(10,12))).show(ctx,|ui|{
                 ui.add_space(5.0);
@@ -1050,6 +1298,7 @@ impl App {
                         4=>egui::include_image!("../assets/settings-icons/system/tasks.svg"),
                         6=>egui::include_image!("../assets/settings-icons/system/notifications.svg"),
                         12=>egui::include_image!("../assets/settings-icons/system/clock.svg"),
+                    13=>egui::include_image!("../assets/settings-icons/system/weather.svg"),
                         _=>egui::include_image!("../assets/settings-icons/system/about.svg"),
                     };
                     let icon_bg=egui::Rect::from_center_size(egui::pos2(rect.left()+21.0,rect.center().y),egui::vec2(25.0,25.0));
@@ -1080,8 +1329,8 @@ impl App {
                     }
                 }
                 ui.visuals_mut().selection.bg_fill=settings_color(ctx,Color32::from_rgb(45,105,165),Color32::from_rgb(209,226,248));
-                let titles=[locale.text("常规"),locale.text("音乐与歌词"),locale.text("专注"),locale.text("饮水"),locale.text("待办"),locale.text("置物"),locale.text("通知"),locale.text("邮箱"),locale.text("日程"),locale.text("关于"),locale.text("页面管理"),locale.text("AI 额度"),locale.text("世界时钟")];
-                ui.label(egui::RichText::new(locale.text(titles[self.settings_tab.min(12)])).size(18.0).strong().color(settings_color(ctx,Color32::WHITE,Color32::from_rgb(30,34,41))));
+                let titles=["常规","音乐与歌词","专注","健康提醒","待办","置物","通知","邮箱","日程","关于","页面管理","AI 额度","世界时钟","天气"];
+                ui.label(egui::RichText::new(locale.text(titles[self.settings_tab.min(titles.len()-1)])).size(18.0).strong().color(settings_color(ctx,Color32::WHITE,Color32::from_rgb(30,34,41))));
                 if let Some((_,start,end))=SETTINGS_GROUPS.iter().find(|(_,start,end)|(*start..=*end).contains(&self.settings_tab)) {
                     if start!=end {
                         ui.add_space(7.0);
@@ -1103,8 +1352,22 @@ impl App {
                 egui::ScrollArea::vertical().id_salt(("settings-scroll",self.settings_tab)).auto_shrink([false,false]).show(ui,|ui|{
                     // 右侧给滚动条留出空隙，卡片和开关不会被它压住。
                     ui.set_width((ui.available_width()-12.0).max(240.0));
+                    // 模块已关闭：顶部说明并提供开启入口，下面的设置置灰。
+                    if let Some(page)=settings_tab_module(self.settings_tab).filter(|page|!self.module_on(*page)) {
+                        let mut enable=false;
+                        settings_card(ui,|ui|{
+                            ui.horizontal(|ui|{
+                                ui.label(egui::RichText::new(format!("「{}」已关闭，不会在后台同步或提醒",PAGE_NAMES[page])).size(12.5));
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{enable=ui.button(locale.text("开启")).clicked();});
+                            });
+                        });
+                        if enable {self.set_page_visible(page,true);}
+                        ui.add_space(6.0);
+                        if !self.module_on(page) {ui.disable();}
+                    }
                     match self.settings_tab {
                     12=>self.world_clock_settings(ui),
+                    13=>self.weather_settings(ui),
                     11=>self.quota_settings(ui),
                     10=>{
                         ui.label(egui::RichText::new(locale.text("选择需要的页面和状态组件。")).size(12.0).color(settings_color(ctx,Color32::from_gray(180),Color32::from_gray(75))));
@@ -1112,14 +1375,18 @@ impl App {
                         settings_card(ui,|ui|self.resident_order_settings(ui));
                         settings_label(ui,locale.text("状态组件"));
                         settings_card(ui,|ui|{
+                            setting_row(ui,locale.text("时间"),locale.text("收起时显示时钟；关闭后仍可在展开顶栏查看"),&mut self.settings.show_clock);
+                            ui.separator();
                             setting_row(ui,locale.text("电量"),locale.text("本机电量、充电状态与提醒；无电池设备自动隐藏"),&mut self.settings.show_battery);
                             ui.separator();
-                            setting_row(ui,locale.text("岛上歌词"),locale.text("收起时显示正在唱的那一句"),&mut self.settings.island_lyrics);
+                            setting_row(ui,locale.text("天气"),locale.text("收起时显示天气图标和温度，点击打开天气页"),&mut self.settings.show_weather);
+                            ui.separator();
+                            setting_row(ui,locale.text("岛上歌词"),locale.text("收起时显示歌词，无歌词时显示封面和歌名"),&mut self.settings.island_lyrics);
                         });
                         settings_label(ui,locale.text("功能页面"));
                         settings_card(ui,|ui|{
-                            let descriptions=[locale.text("播放控制与同步歌词"),locale.text("番茄钟与休息计时"),locale.text("饮水记录与提醒"),locale.text("临时收纳文件位置"),locale.text("任务清单与到期提醒"),locale.text("邮件摘要与验证码"),locale.text("Agent 剩余额度和账号切换"),locale.text("月历、邮件邀请与工作日程"),locale.text("城市时间、时差与跨时区对照")];
-                            ui.label(egui::RichText::new(locale.text("拖动左侧手柄调整顺序，松开后自动应用到岛。")).size(11.5).color(settings_color(ctx,Color32::from_gray(180),Color32::from_gray(75))));
+                            let descriptions=["播放控制与同步歌词","番茄钟与休息计时","喝水与久坐提醒","临时收纳文件位置","任务清单与到期提醒","邮件摘要与验证码","Agent 剩余额度和账号切换","月历、邮件邀请与工作日程","城市时间与离线地球","当地天气与七日预报"];
+                            ui.label(egui::RichText::new(locale.text("拖动左侧手柄调整顺序；关闭的功能不在后台运行，不同步也不提醒，已有数据保留。")).size(11.5).color(settings_color(ctx,Color32::from_gray(180),Color32::from_gray(75))));
                             #[derive(Clone)]
                             struct PageDrag(usize);
                             let mut movement=None;
@@ -1135,7 +1402,7 @@ impl App {
                                         ui.painter().circle_filled(rect.center()+egui::vec2(x,y),1.4,settings_color(ctx,Color32::from_gray(155),Color32::from_gray(100)));
                                     }}
                                     handle.on_hover_cursor(egui::CursorIcon::Grab).dnd_set_drag_payload(PageDrag(page));
-                                    ui.add_enabled_ui(can_change,|ui|{setting_row(ui,locale.text(PAGE_NAMES[page]),descriptions[page],&mut visible);});
+                                    ui.add_enabled_ui(can_change,|ui|{setting_row(ui,locale.text(PAGE_NAMES[page]),locale.text(descriptions[page]),&mut visible);});
                                 })).inner.response;
                                 if let Some(payload)=row.dnd_hover_payload::<PageDrag>() {
                                     if payload.0!=page {
@@ -1154,7 +1421,7 @@ impl App {
                             }
                             if self.settings.visible_pages.iter().filter(|enabled|**enabled).count()==1 {
                                 ui.add_space(5.0);
-                                ui.label(egui::RichText::new(locale.text("至少保留一个页面。关闭仅隐藏页面，数据和提醒设置保留。")).size(11.0).color(settings_color(ctx,Color32::from_gray(180),Color32::from_gray(75))));
+                                ui.label(egui::RichText::new(locale.text("至少保留一个页面。")).size(11.0).color(settings_color(ctx,Color32::from_gray(180),Color32::from_gray(75))));
                             }
                         });
                     }
@@ -1193,6 +1460,20 @@ impl App {
                             settings_hint(ui,locale.text("开启后，重新打开终端即可运行 islo-cli capabilities。"));
                             if self.settings.cli_enabled && ui.button(locale.text("重新注册命令")).clicked(){self.pending.push(Cmd::SetCliEnabled(true));}
                             if !self.cli_note.is_empty(){ui.add(egui::Label::new(locale.status(&self.cli_note)).wrap());}
+                        });
+                        settings_label(ui,locale.text("图形渲染"));
+                        settings_card(ui,|ui|{
+                            let before=self.settings.render_compat;
+                            setting_row(ui,locale.text("兼容渲染（Direct3D 12）"),locale.text("岛周围出现黑框、画面闪烁或错乱，或打开设置后崩溃退出时开启；切换后重启岛仔生效"),&mut self.settings.render_compat);
+                            // 手动关闭后不再显示自动切换的原因；再次开启视为手动开启。
+                            if before!=self.settings.render_compat {self.settings.render_compat_reason.clear();}
+                            if !self.settings.render_compat_reason.is_empty() {settings_hint(ui,&self.settings.render_compat_reason);}
+                            if self.settings.render_compat!=self.render_compat_running {
+                                ui.horizontal(|ui|{
+                                    ui.label(egui::RichText::new(locale.text("重启岛仔后生效")).size(12.0).color(Color32::from_rgb(230,150,40)));
+                                    if ui.button(locale.text("立即重启")).clicked(){self.pending.push(Cmd::RestartApp);}
+                                });
+                            }
                         });
                         settings_label(ui,locale.text("岛体外观"));
                         settings_card(ui,|ui|{
@@ -1259,11 +1540,32 @@ impl App {
                             let offset=self.settings.island_offset;
                             let (less,more)=if side{(locale.text("偏上"),locale.text("偏下"))}else{(locale.text("偏左"),locale.text("偏右"))};
                             let position=match offset {0=>locale.text("居中").to_string(),o if o<0=>format!("{less} {}%",-o),o=>format!("{more} {o}%")};
-                            ui.label(egui::RichText::new(if locale.is_english(){format!("Position: {position}. Panels and notifications stay on screen. Relative position is preserved when changing displays or size.")}else{locale.format("当前：{0}。展开面板和通知始终留在屏幕内；换屏或调整大小后保持相对位置。",&[("0",format!("{}",position))])}).size(11.0).color(ui.visuals().weak_text_color()));
+                            ui.label(egui::RichText::new(locale.format("当前：{0}。也可以展开后按住日期时间，拖到屏幕顶部、左侧或右侧；展开面板和通知始终留在屏幕内，换屏或调整大小后保持相对位置。",&[("0",position)])).size(11.0).color(ui.visuals().weak_text_color()));
+                            ui.add_space(4.0);
+                            setting_row(ui,locale.text("OLED 像素偏移"),locale.text("收起静止时让岛体沿屏幕边缘缓慢移动几个像素，帮助减轻 OLED 静态显示留下的痕迹；不会改动你保存的位置"),&mut self.settings.oled_shift);
+                            if self.settings.oled_shift {
+                                settings_hint(ui,locale.text("每 45 秒移动 1 像素、单方向最多 3 像素；顶部停靠左右移动，左右停靠上下移动。展开、点击或拖拽时保持当前位置，位置拉满或屏幕太窄时少挪或不挪。"));
+                            }
+                            ui.add_space(4.0);
+                            setting_row(ui,locale.text("顶栏适配"),locale.text("顶部有菜单栏类软件或任务栏时，选择岛体的显示方式"),&mut self.settings.avoid_top_bar);
+                            if self.settings.avoid_top_bar {
+                                settings_control_row_right(ui,locale.text("显示方式"),|ui|{
+                                    settings_segmented(ui,&mut self.settings.top_bar_on_top,&[(false,locale.text("避开顶栏")),(true,locale.text("岛仔置顶"))],90.0);
+                                });
+                                if self.settings.top_bar_on_top {
+                                    settings_hint(ui,locale.text("顶部停靠时，岛体保持在屏幕顶边，显示在顶栏上方。"));
+                                } else {
+                                    let reserved=crate::display_layout::selected(&self.displays,&self.settings.display_id).map_or(0,|d|{
+                                        let b=crate::display_layout::placement_bounds(d,true);(b.top-d.bounds.top).max(0)
+                                    });
+                                    settings_hint(ui,&if reserved>0 {locale.format("已检测到顶栏，岛体下移 {0} 像素。",&[("0",reserved.to_string())])}else{locale.text("未检测到顶栏；未向系统登记占用区域的顶栏可尝试“岛仔置顶”。").to_string()});
+                                }
+                            }
                             ui.separator();
                             settings_control_row_right(ui,locale.text("时间制式"),|ui|{settings_segmented(ui,&mut self.settings.clock_12h,&[(false,locale.text("24 小时")),(true,locale.text("12 小时"))],72.0);});
                             settings_control_row_right(ui,locale.text("时段文字"),|ui|{settings_segmented(ui,&mut self.settings.clock_period,&[(0,locale.text("不显示")),(1,locale.text("上午 / 下午")),(2,locale.text("详细时段"))],72.0);});
                             settings_hint(ui,locale.text("详细时段：凌晨、上午、中午、下午、傍晚、晚上"));
+                            setting_row(ui,locale.text("显示秒数"),locale.text("时间显示为 14:32:08"),&mut self.settings.clock_seconds);
                             ui.separator();
                             let mut minimal=self.settings.minimal;
                             setting_row(ui,locale.text("极简刘海"),locale.text("收起时显示一条细线"),&mut minimal);
@@ -1307,9 +1609,9 @@ impl App {
                         self.avoidance.settings(ui,&mut self.settings);
                         settings_label(ui,locale.text("声音与显示"));
                         settings_card(ui,|ui|{
-                            setting_row(ui,locale.text("提醒声音"),locale.text("喝水、待办和专注提醒"),&mut self.settings.sound);
+                            setting_row(ui,locale.text("提醒声音"),locale.text("喝水、久坐、待办和专注提醒"),&mut self.settings.sound);
                             ui.separator();
-                            setting_row(ui,locale.text("全屏时隐藏"),locale.text("游戏、视频和演示全屏时隐藏"),&mut self.settings.hide_fullscreen);
+                            setting_row(ui,locale.text("全屏时隐藏"),locale.text("全屏隐藏岛仔，健康提醒静默保留"),&mut self.settings.hide_fullscreen);
                         });
                     }
                     1=>{
@@ -1318,7 +1620,7 @@ impl App {
                             setting_row(ui,locale.text("展开时显示歌词"),locale.text("在播放器右侧同步滚动显示歌词"),&mut self.settings.lyrics_enabled);
                             self.show_lyrics=self.settings.lyrics_enabled;
                             ui.separator();
-                            setting_row(ui,locale.text("岛上歌词"),locale.text("收起时显示当前句；无同步歌词时恢复普通岛"),&mut self.settings.island_lyrics);
+                            setting_row(ui,locale.text("岛上歌词"),locale.text("收起时显示当前句；无同步歌词时显示封面和歌名"),&mut self.settings.island_lyrics);
                         });
                         settings_label(ui,locale.text("歌词显示时间"));
                         settings_card(ui,|ui|{
@@ -1342,12 +1644,25 @@ impl App {
                         settings_label(ui,locale.text("喝水提醒"));
                         settings_card(ui,|ui|{
                             let old_remind=self.water.remind;
-                            setting_row(ui,locale.text("定时提醒"),locale.text("达到每日目标后停止提醒"),&mut self.water.remind);
-                            if self.water.remind!=old_remind{self.water.save();self.last_reminder=self.t;}
+                            setting_row(ui,locale.text("定时提醒"),locale.text("确认或喝水后重新计时；达标后停止提醒"),&mut self.water.remind);
+                            if self.water.remind!=old_remind{self.water.save();self.confirm_health_reminder(HealthReminder::Water);}
                             ui.separator();
-                            if setting_number(ui,locale.text("每日目标"),&mut self.water.goal_ml,500,6000," ml",50.0){self.water.save();}
-                            setting_number(ui,locale.text("每次记录"),&mut self.settings.serving_ml,50,1000," ml",25.0);
-                            setting_number(ui,locale.text("提醒间隔"),&mut self.settings.water_minutes,5,180,locale.text(" 分钟"),1.0);
+                            if setting_number(ui,"每日目标",&mut self.water.goal_ml,500,6000," ml",50.0){self.water.save();}
+                            setting_number(ui,"每次记录",&mut self.settings.serving_ml,50,1000," ml",25.0);
+                            setting_number(ui,"提醒间隔",&mut self.settings.water_minutes,5,180," 分钟",1.0);
+                        });
+                        settings_label(ui,locale.text("久坐提醒"));
+                        settings_card(ui,|ui|{
+                            let old_sit=self.settings.sit_remind;
+                            setting_row(ui,locale.text("定时提醒"),locale.text("确认提醒或点「起身了」后重新计时"),&mut self.settings.sit_remind);
+                            if self.settings.sit_remind!=old_sit {self.confirm_health_reminder(HealthReminder::Sit);}
+                            ui.separator();
+                            setting_number(ui,"久坐时长",&mut self.settings.sit_minutes,15,180," 分钟",1.0);
+                            ui.add_space(3.0);
+                            ui.small("专注计时进行中不打扰，专注结束后再提醒。");
+                        });
+                        settings_label(ui,locale.text("提醒时段"));
+                        settings_card(ui,|ui|{
                             settings_control_row(ui,locale.text("提醒时段"),80.0,|ui|{
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
                                     ui.allocate_ui_with_layout(egui::vec2(252.0,30.0),egui::Layout::left_to_right(egui::Align::Center),|ui|{
@@ -1357,6 +1672,21 @@ impl App {
                                     });
                                 }).response
                             });
+                            ui.separator();
+                            setting_row(ui,locale.text("午休不提醒"),locale.text("午休时间内喝水和久坐都不弹提醒"),&mut self.settings.lunch_rest);
+                            if self.settings.lunch_rest {
+                                settings_control_row(ui,locale.text("午休时间"),80.0,|ui|{
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
+                                        ui.allocate_ui_with_layout(egui::vec2(252.0,30.0),egui::Layout::left_to_right(egui::Align::Center),|ui|{
+                                            time_stepper(ui,&mut self.settings.lunch_start,"lunch-start");
+                                            ui.label(locale.text("至"));
+                                            time_stepper(ui,&mut self.settings.lunch_end,"lunch-end");
+                                        });
+                                    }).response
+                                });
+                            }
+                            ui.add_space(3.0);
+                            ui.small("喝水和久坐提醒只在提醒时段内、午休以外弹出。");
                         });
                     }
                     4=>{
@@ -1390,22 +1720,43 @@ impl App {
                             ui.separator();
                             setting_row(ui,locale.text("蓝牙通知"),locale.text("设备连接与断开提醒；关闭后停止蓝牙监听"),&mut self.settings.bluetooth_notifications);
                             ui.separator();
-                            setting_row(ui,locale.text("islo提醒"),locale.text("在岛上显示饮水、专注和待办提醒"),&mut self.settings.notifications);
-                            ui.separator();
-                            setting_row(ui,locale.text("全屏待办提醒"),locale.text("待办到点后置顶全屏显示，直到处理；重启后保留未处理提醒"),&mut self.settings.fullscreen_task_reminders);
+                            setting_row(ui,locale.text("提醒总开关"),locale.text("关闭后饮水、专注、待办及聊天软件提醒都不显示"),&mut self.settings.notifications);
                         });
+                        // 总开关关闭时，微信与 QQ 两栏置灰并说明原因，避免「开了也不提醒」。
+                        let master=self.settings.notifications;
+                        let master_hint=|ui:&mut egui::Ui|if !master {
+                            ui.label(egui::RichText::new(locale.text("提醒总开关已关闭（上方「系统提示」），打开后这里才会生效")).size(12.0).color(Color32::from_rgb(230,150,40)));
+                        };
                         settings_label(ui,locale.text("微信提醒"));
                         settings_card(ui,|ui|{
+                            master_hint(ui);
+                            ui.add_enabled_ui(master,|ui|{
                             setting_row(ui,locale.text("微信新消息提醒"),locale.text("根据任务栏闪动提醒，不读取联系人或聊天正文"),&mut self.settings.wechat_notifications);
                             if self.settings.wechat_notifications {
                                 ui.separator();
                                 setting_row(ui,locale.text("托盘一键唤起微信"),locale.text("微信缩在托盘时，点提醒由系统按下微信托盘图标；图标收在折叠区时托盘菜单会短暂弹出"),&mut self.settings.wechat_tray_open);
                             }
-                            if !self.wechat_status.is_empty(){ui.label(egui::RichText::new(locale.status(&self.wechat_status)).size(12.0));}
+                            if master && !self.messenger_status(crate::app::Messenger::Wechat).is_empty(){ui.label(egui::RichText::new(self.messenger_status(crate::app::Messenger::Wechat)).size(12.0));}
+                            });
+                        });
+                        settings_label(ui,locale.text("办公软件提醒"));
+                        settings_card(ui,|ui|{
+                            master_hint(ui);
+                            ui.add_enabled_ui(master,|ui|{
+                                setting_row(ui,locale.text("企业微信"),locale.text("根据任务栏闪动提醒"),&mut self.settings.wecom_notifications);
+                                setting_row(ui,locale.text("飞书"),locale.text("根据任务栏闪动提醒"),&mut self.settings.feishu_notifications);
+                                setting_row(ui,locale.text("钉钉"),locale.text("根据任务栏闪动提醒"),&mut self.settings.dingtalk_notifications);
+                                ui.label(egui::RichText::new(locale.text("需在客户端开启任务栏闪动，不读取联系人或聊天正文。点击提醒打开对应窗口；账号无法确认时可手动关闭提醒。")).size(12.0).color(settings_color(ctx,Color32::from_gray(180),Color32::from_gray(75))));
+                                for client in crate::messenger::Messenger::OFFICE {
+                                    if client.enabled(&self.settings) && !self.messenger_status(client).is_empty(){ui.label(egui::RichText::new(self.messenger_status(client)).size(12.0));}
+                                }
+                            });
                         });
                         settings_label(ui,locale.text("QQ 与 Windows 通知"));
                         settings_card(ui,|ui|{
-                            ui.label(egui::RichText::new(locale.status(&self.listener_status)).size(13.0));
+                            master_hint(ui);
+                            ui.add_enabled_ui(master,|ui|{
+                            ui.label(egui::RichText::new(&self.listener_status).size(13.0));
                             if self.settings.read_notifications {
                                 if ui.button(if self.settings.qq_only{locale.text("断开 QQ 通知")}else{locale.text("断开系统通知")}).clicked(){self.pending.push(Cmd::DisconnectNotifications);}
                             }else{
@@ -1421,12 +1772,20 @@ impl App {
                             let before_apps=self.notification_apps.items.clone();
                             for (_,name,enabled) in &mut self.notification_apps.items {setting_row(ui,name,"",enabled);}
                             if before_apps!=self.notification_apps.items{self.notification_apps.save();}
+                            });
                         });
                     }
                     7=>{
                         settings_label(ui,locale.text("邮件提醒"));
                         settings_card(ui,|ui|{
                             setting_row(ui,locale.text("新邮件提醒"),locale.text("新邮件到达时显示提醒；岛上歌词模式显示右侧图标"),&mut self.settings.mail_enabled);
+                            ui.separator();
+                            let sync_before=self.settings.mail_sync_operations;
+                            ui.add_enabled_ui(self.mail.manage.pending.is_empty(),|ui|{
+                                setting_row(ui,locale.text("同步邮件操作到邮箱"),locale.text("开启后同步已读、删除和恢复；关闭时仅整理岛仔中的记录"),&mut self.settings.mail_sync_operations);
+                            });
+                            if sync_before!=self.settings.mail_sync_operations{self.mail_manage_mode_changed();}
+                            ui.label(egui::RichText::new(locale.text("切换开关不会补交之前的本机操作。")).size(11.5).color(settings_color(ctx,Color32::from_gray(195),Color32::from_gray(60))));
                             ui.separator();
                             setting_row(ui,locale.text("验证码高亮"),locale.text("识别到验证码时在岛上放大显示，点击即复制"),&mut self.settings.mail_code);
                             ui.separator();
@@ -1488,7 +1847,7 @@ impl App {
                                 }).response
                             });
                             ui.add_space(5.0);
-                            ui.label(egui::RichText::new(locale.text(if self.mail.form.provider==crate::mail::Provider::Outlook{"Outlook 网页授权"}else{"获取授权码或专用密码"})).size(12.5).strong());
+                            ui.label(egui::RichText::new(locale.text(if self.mail.form.provider==crate::mail::Provider::Outlook{locale.text("Outlook 网页授权")}else{locale.text("获取授权码或专用密码")})).size(12.5).strong());
                             ui.add(egui::Label::new(egui::RichText::new(locale.text(self.mail.form.provider.hint())).size(12.0).color(settings_color(ctx,Color32::from_gray(200),Color32::from_gray(55)))).wrap());
                             let (label,url)=self.mail.form.provider.setup_link();
                             if self.mail.form.provider!=crate::mail::Provider::Outlook && !url.is_empty() && ui.link(locale.text(label)).clicked(){self.pending.push(Cmd::OpenUrl(url.into()));}
@@ -1526,8 +1885,11 @@ impl App {
                                 if ui.add_sized([48.0,30.0],egui::Button::new(if self.mail.form.show{locale.text("隐藏")}else{locale.text("显示")})).clicked(){self.mail.form.show=!self.mail.form.show;}
                                 field
                             });
+                            let candidate=crate::mail::Account{custom:(self.mail.form.provider==crate::mail::Provider::Custom).then(||self.mail.form.custom.clone()),email:self.mail.form.email.trim().into(),provider:self.mail.form.provider,enabled:true};
+                            let microsoft=candidate.endpoint().err().as_deref()==Some(crate::mail::MICROSOFT_OAUTH_REQUIRED);
+                            if microsoft{ui.label(locale.text(crate::mail::MICROSOFT_OAUTH_REQUIRED));}
                             ui.horizontal(|ui|{
-                                if ui.button(locale.text("测试连接")).clicked(){
+                                if ui.add_enabled(!microsoft,egui::Button::new(locale.text("测试连接"))).clicked(){
                                     let email=self.mail.form.email.trim().to_string();
                                     let target=crate::mail::Account{custom:(self.mail.form.provider==crate::mail::Provider::Custom).then(||self.mail.form.custom.clone()),email:email.clone(),provider:self.mail.form.provider,enabled:true};
                                     if !email.contains('@'){self.mail.note="请先填邮箱地址".into();}
@@ -1539,7 +1901,7 @@ impl App {
                                         self.pending.push(Cmd::MailTest(crate::mail::Account {custom: (self.mail.form.provider==crate::mail::Provider::Custom).then(||self.mail.form.custom.clone()), email:email.clone(),provider:self.mail.form.provider,enabled:true},self.mail.form.password.clone()));
                                     }
                                 }
-                                if ui.button(locale.text("保存并开始监控")).clicked(){
+                                if ui.add_enabled(!microsoft,egui::Button::new(locale.text("保存并开始监控"))).clicked(){
                                     let email=self.mail.form.email.trim().to_string();
                                     let target=crate::mail::Account{custom:(self.mail.form.provider==crate::mail::Provider::Custom).then(||self.mail.form.custom.clone()),email:email.clone(),provider:self.mail.form.provider,enabled:true};
                                     if !email.contains('@'){self.mail.note="请先填邮箱地址".into();}
@@ -1578,18 +1940,20 @@ impl App {
                                 ui.horizontal(|ui|{
                                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
                                         if ui.add_enabled(!self.calendar.testing,egui::Button::new(locale.text("断开")).small()).clicked(){self.pending.push(Cmd::CalendarForget);}
-                                        if ui.small_button(locale.text("立即同步")).clicked(){self.calendar.note="正在同步…".into();self.calendar.note_error=false;self.pending.push(Cmd::CalendarSync);}
+                                        if ui.small_button(locale.text("立即同步")).clicked(){self.calendar.note=locale.text("正在同步…").into();self.calendar.note_error=false;self.pending.push(Cmd::CalendarSync);}
                                     });
                                 });
                                 ui.label(egui::RichText::new(locale.format("{0} · 最后同步 {1}",&[("0",format!("{}",locale.text(cfg.provider.label()))),("1",format!("{}",if self.calendar.last_sync.is_empty(){"—".to_string()}else{self.calendar.last_sync.clone()}))])).size(11.0).color(settings_color(ctx,Color32::from_gray(150),Color32::from_gray(105))));
                                 if let Some(feed)=self.calendar.feeds.iter().find(|feed|feed.config==cfg) {
-                                    let status=if feed.month.loading {locale.text("正在同步本月日程…").to_owned()}
-                                        else if !feed.month.error.is_empty(){locale.format("本月同步失败：{0}",&[("0",format!("{}",locale.status(&feed.month.error)))])}
-                                        else if feed.month.loaded==Some(self.calendar.view.month){locale.format("{0} 已同步 {1} 个日程",&[("0",format!("{}",self.calendar.view.month.format("%Y-%m"))),("1",format!("{}",feed.month.events.len()))])}
+                                    let status=if feed.month.loading {"正在同步本月日程…".to_owned()}
+                                        else if !feed.month.error.is_empty(){format!("本月同步失败：{}",feed.month.error)}
+                                        else if feed.month.loaded==Some(self.calendar.view.month){format!("{} {} {} 个日程",self.calendar.view.month.format("%Y-%m"),if feed.month.warning.is_empty(){"已同步"}else{"已读取"},feed.month.events.len())}
                                         else {String::new()};
                                     if !status.is_empty(){ui.add(egui::Label::new(egui::RichText::new(status).size(12.0)).wrap());}
+                                    if !feed.month.warning.is_empty(){ui.add(egui::Label::new(egui::RichText::new(format!("本月部分日程未同步：{}",feed.month.warning)).size(12.0).color(settings_color(ctx,Color32::from_rgb(238,181,91),Color32::from_rgb(139,88,12)))).wrap());}
                                 }
                                 setting_row(ui,locale.text("自动同步"),locale.text("每 5 分钟更新日程；关闭后可点「立即同步」"),&mut self.settings.calendar_auto_sync);
+                                if !self.calendar.warning.is_empty(){ui.add(egui::Label::new(egui::RichText::new(format!("同步提示：{}",self.calendar.warning)).size(12.0).color(settings_color(ctx,Color32::from_rgb(238,181,91),Color32::from_rgb(139,88,12)))).wrap());}
                                 if !self.calendar.error.is_empty(){
                                     ui.add(egui::Label::new(egui::RichText::new(locale.status(&self.calendar.error)).size(12.0).color(settings_color(ctx,Color32::from_rgb(240,96,96),Color32::from_rgb(184,34,34)))).wrap());
                                 }
@@ -1736,6 +2100,10 @@ impl App {
                             ui.label(egui::RichText::new(locale.text("桌面顶部的音乐、专注、提醒与日程小助手。")).size(12.0).color(settings_color(ctx,Color32::from_gray(180),Color32::from_gray(75))));
                             ui.horizontal_wrapped(|ui|{
                                 if ui.button(locale.text("打开本地数据目录")).clicked(){self.pending.push(Cmd::Open(crate::model::config_dir()));}
+                                if ui.button(locale.text("收集诊断")).clicked(){
+                                    // 另起 `islo.exe --collect-diagnostics`：在新窗口里收集，诊断包保存到桌面并自动选中。
+                                    if crate::diagnostics_tool::launch().is_err(){self.say("无法启动诊断收集，请从开始菜单打开「收集岛仔诊断」");}
+                                }
                                 ui.label(egui::RichText::new(locale.text("设备图标：Solar Icons · 480 Design")).size(11.0).color(settings_color(ctx,Color32::from_gray(150),Color32::from_gray(105))));
                                 ui.hyperlink_to("CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/");
                             });
@@ -1754,5 +2122,6 @@ impl App {
             if before!=format!("{:?}",self.settings){self.settings.save();}
             ctx.set_style(original_style);
         });
+        if !self.settings_open{self.window_layout().close();self.weather_source.close();}else{self.weather_tutorial_ui(ctx);}
     }
 }

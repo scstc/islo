@@ -12,6 +12,7 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 
 /// 剪贴板分栏一屏显示的条数。
 pub(crate) const CLIP_ROWS: usize = 4;
+pub(crate) const MUSIC_VOLUME_RECT: Rect = Rect::from_min_max(Pos2::new(345.0,6.0),Pos2::new(389.0,104.0));
 
 fn mmss(secs: f64) -> String {
     let s = secs.max(0.0) as u64;
@@ -78,7 +79,14 @@ impl App {
             bar.interact_pointer_pos().or_else(||ctx.input(|i|i.pointer.interact_pos()))
                 .map(|pointer|((c.to_local(pointer).x-bx)/bw).clamp(0.0,1.0) as f64*np.duration)
         }else{None};
-        let position=seek_position.unwrap_or(np.position);
+        // 松手后播放器的新位置要等下一轮采样才回来（QQ 音乐尤其慢），先用目标值顶着，否则滑块会先弹回旧位置再跳过去。
+        let pending_position=self.music_seek_ui.as_ref().filter(|(_,title)|*title==np.title).map(|(target,_)|*target);
+        // 切到上一首 / 下一首后先本地归零：新歌位置要等下一轮采样，否则会拿旧歌进度配新歌名停一下。
+        let restart=self.music_restart_at.filter(|at|self.t<at+1.5).map(|at|(self.t-at).max(0.0));
+        let position=seek_position.or(pending_position).unwrap_or_else(||match restart {
+            Some(fresh) if np.position>fresh+1.0=>fresh,
+            _=>np.position,
+        });
         let frac=if np.duration>0.0 {(position/np.duration).clamp(0.0,1.0) as f32}else{0.0};
         let (time_y,time_size,right)=if with_lyrics {(100.0,10.0,220.0)}else{(97.0,15.0,375.0)};
         c.text(44.0,time_y,&mmss(position),time_size,W::Regular,tc,H::Left);
@@ -104,7 +112,11 @@ impl App {
         if bh>0.01 {c.faded(bh).circle(bx+bw*frac,by,4.5,theme::WHITE);}
         }
         if bar.clicked() || bar.drag_stopped() {
-            if let Some(position)=seek_position {cmds.push(Cmd::Media(Transport::Seek(position)));}
+            if let Some(position)=seek_position {
+                self.music_seek_ui=Some((position,np.title.clone()));
+                self.music_seek_quiet_until=self.t+2.5;
+                cmds.push(Cmd::Media(Transport::Seek(position)));
+            }
         }
 
         let y=118.0;
@@ -124,17 +136,23 @@ impl App {
         let (next,next_card)=btn(258.0,30.0,"m-next");
         paint::skip(&next_card,258.0,y,1.0,ic);
         let (volume_button,volume_card)=btn(367.0,26.0,"m-volume");
-        let (volume,muted)=self.volume_ui.unwrap_or((0,false));
-        paint::speaker(&volume_card,367.0,y,muted,ic);
-        if self.volume_ui.is_some() && volume_button.on_hover_text(if muted {locale.text("取消静音")}else{locale.text("静音")}).clicked() {
-            self.volume_ui=Some((volume,!muted));
-            self.volume_quiet_until=self.t+0.9;
-            cmds.push(Cmd::ToggleMute);
+        let (volume,muted)=self.music_volume_ui.unwrap_or((0,false));
+        paint::speaker(&volume_card,367.0,y,muted,if self.music_volume_ui.is_some(){ic}else{theme::GRAY});
+        let hint=if self.music_volume_ui.is_some(){format!("音乐应用音量 {volume}%{} · 点击展开 · 滚轮调节",if muted{"（已静音）"}else{""})}else{"暂无可调节的音乐音频会话".into()};
+        let volume_button=volume_button.on_hover_text(hint);
+        if c.live && has && self.music_volume_ui.is_some() {
+            if volume_button.clicked(){self.music_volume_open=!self.music_volume_open;}
+            if volume_button.hovered(){
+                    let delta=c.ui.ctx().input(|i|i.raw_scroll_delta.y);
+                    if delta.abs()>0.5 {
+                        self.change_music_volume(Transport::SetVolume((volume as f32+delta/120.0*4.0).round().clamp(0.0,100.0) as u32),cmds);
+                    }
+            }
         }
         if has {
-            if previous.clicked() {cmds.push(Cmd::Media(Transport::Prev));}
+            if previous.clicked() {self.music_restart_at=Some(self.t);self.music_seek_ui=None;cmds.push(Cmd::Media(Transport::Prev));}
             if play.clicked() {cmds.push(Cmd::Media(Transport::Toggle));}
-            if next.clicked() {cmds.push(Cmd::Media(Transport::Next));}
+            if next.clicked() {self.music_restart_at=Some(self.t);self.music_seek_ui=None;cmds.push(Cmd::Media(Transport::Next));}
         }
         if lyrics_button.on_hover_text(if self.show_lyrics {locale.text("隐藏歌词")}else{locale.text("显示歌词")}).clicked() {
             if !has {self.say(locale.text("先放一首歌吧"));}
@@ -153,6 +171,57 @@ impl App {
                 self.settings.save();
             }
         }
+    }
+
+    fn change_music_volume(&mut self,command:Transport,cmds:&mut Vec<Cmd>){
+        let Some((volume,_))=self.music_volume_ui else{return;};
+        let next=match command{Transport::SetVolume(v)=>(v,false),Transport::SetMute(muted)=>(volume,muted),_=>return};
+        if self.music_volume_ui==Some(next){return;}
+        self.music_volume_ui=Some(next);
+        self.music_volume_quiet_until=self.t+0.9;
+        cmds.push(Cmd::MusicVolume(command,self.media.source.clone()));
+    }
+
+    pub(crate) fn draw_music_volume(&mut self,c:&Card,cmds:&mut Vec<Cmd>){
+        let ctx=c.ui.ctx();
+        let bounds=MUSIC_VOLUME_RECT;
+        let panel=c.rect(bounds.min.x,bounds.min.y,bounds.width(),bounds.height());
+        let trigger=c.rect(354.0,106.0,26.0,24.0);
+        if self.music_volume_open && ctx.input(|i|i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p|!panel.contains(p) && !trigger.contains(p))){
+            self.music_volume_open=false;
+        }
+        let a=ctx.animate_bool_with_time(egui::Id::new("music-volume-open"),self.music_volume_open,0.12);
+        let Some((volume,muted))=self.music_volume_ui else{return;};
+        if a<0.01{return;}
+        let popup=c.faded(a);
+        let popup=if self.music_volume_open{popup}else{popup.ghost()};
+        // 浮条最后绘制并占据整块命中区域，防止点击穿到后面的翻页按钮。
+        popup.hit(bounds.min.x,bounds.min.y,bounds.width(),bounds.height(),"m-volume-surface");
+        popup.fill(bounds.min.x,bounds.min.y,bounds.width(),bounds.height(),12.0,Color32::from_gray(36));
+        popup.stroke(bounds.min.x,bounds.min.y,bounds.width(),bounds.height(),12.0,1.0,Color32::from_gray(60));
+        let track=popup.hit_drag(351.0,27.0,32.0,54.0,"m-volume-track");
+        let mut command=None;
+        if popup.live && (track.clicked() || track.dragged() || track.is_pointer_button_down_on()) {
+            if let Some(pointer)=track.interact_pointer_pos(){
+                command=Some(Transport::SetVolume(((75.0-popup.to_local(pointer).y)/43.0*100.0).round().clamp(0.0,100.0) as u32));
+            }
+        }else if popup.live && panel.contains(ctx.pointer_hover_pos().unwrap_or(Pos2::ZERO)) {
+            let delta=ctx.input(|i|i.raw_scroll_delta.y);
+            if delta.abs()>0.5{command=Some(Transport::SetVolume((volume as f32+delta/120.0*4.0).round().clamp(0.0,100.0) as u32));}
+        }
+        let mute=popup.hit(353.0,82.0,28.0,20.0,"m-volume-mute").on_hover_text(if muted{"恢复音乐音量"}else{"静音音乐，保留当前音量"});
+        let (hover,press)=popup.hover_t(&mute);
+        if popup.live && mute.clicked(){command=Some(Transport::SetMute(!muted));}
+        if let Some(command)=command {self.change_music_volume(command,cmds);}
+        let (volume,muted)=self.music_volume_ui.unwrap_or((volume,muted));
+        let ink=if muted{theme::GRAY}else{theme::WHITE};
+        popup.centered_text(367.0,20.0,&format!("{volume}%"),10.5,W::Semibold,ink,H::Center);
+        popup.fill(364.5,32.0,5.0,43.0,2.5,Color32::from_gray(68));
+        let head=75.0-43.0*volume as f32/100.0;
+        if volume>0 {popup.fill(364.5,head,5.0,(75.0-head).max(2.5),2.5,ink);}
+        popup.circle(367.0,head,if track.dragged(){5.5}else{4.5},ink);
+        popup.fill(353.0,82.0,28.0,20.0,6.0,paint::mix(theme::BTN,theme::BTN_HOVER,if muted{1.0}else{hover}));
+        popup.scaled(367.0,92.0,1.0-0.06*press).centered_text(367.0,92.0,if muted{"恢复"}else{"静音"},9.5,W::Semibold,theme::WHITE,H::Center);
     }
 
     fn draw_music_lyrics(&mut self,c:&Card) {
@@ -276,40 +345,121 @@ impl App {
 
     // ================= 饮水 =================
     fn next_hint(&self, env: &Env) -> String {
-        let left = (self.settings.water_minutes as f64 * 60.0 - (self.t - self.last_reminder)).max(0.0) as u32 / 60;
-        let total = env.hour() as u32 * 60 + env.minute() + left;
+        Self::clock_after(env, self.settings.water_minutes as f64 * 60.0 - (self.t - self.last_reminder))
+    }
+    /// 从现在起 secs 秒后的时钟读数（HH:MM）。
+    fn clock_after(env: &Env, secs: f64) -> String {
+        let total = env.hour() as u32 * 60 + env.minute() + secs.max(0.0) as u32 / 60;
         format!("{:02}:{:02}", (total / 60) % 24, total % 60)
     }
 
+    /// 健康页：标题「健康」后接「喝水 | 久坐」分段切换。两种模式是同一套版式——
+    /// 大数字、右上开关、状态行、进度条、主按钮 + 设置、右侧进度环都在同一位置，
+    /// 只换内容和主色（蓝 / 绿）。设置按钮、分隔线和开关本体不随切换闪动。
     pub(crate) fn page_water(&mut self, c: &Card, env: &Env) {
         let locale=self.settings.locale();
-        let pct = self.water.percent();
-        let liters = self.water_ml / 1000.0;
-        let ww = c.text(44.0, 61.0, &format!("{liters:.1}"), size::HERO, W::Bold, theme::WHITE, H::Left);
-        c.text(44.0 + ww + 5.0, 60.0, &format!("/ {:.1} L", self.water.goal_ml as f32 / 1000.0), 11.0, W::Semibold, theme::GRAY, H::Left);
+        let sv = self.sit_view_t.pos.clamp(0.0, 1.0);
+        self.health_tabs(c, 15.0, sv);
 
-        // 提醒开关：旋钮弹簧滑动
-        let sw = c.hit(160.0, 35.0, 38.0, 22.0, "w-remind");
+        // 共用的开关：位置不变，颜色和旋钮图标随模式过渡。
+        let sit = self.sit_mode;
+        let sw = c.hit(160.0, 35.0, 38.0, 22.0, "w-remind")
+            .on_hover_text(match (sit, if sit { self.settings.sit_remind } else { self.water.remind }) {
+                (false, true) => "关闭喝水提醒", (false, false) => "打开喝水提醒",
+                (true, true) => "关闭久坐提醒", (true, false) => "打开久坐提醒",
+            });
         let (sh, _) = c.hover_t(&sw);
-        let on = self.remind_t.pos;
-        let track = mix(Color32::from_rgb(58, 58, 62), theme::BLUE, on.clamp(0.0, 1.0));
+        let on = lerp(self.remind_t.pos, self.sit_t.pos, sv);
+        let accent = mix(theme::BLUE, theme::SIT_GREEN, sv);
+        let track = mix(Color32::from_rgb(58, 58, 62), accent, on.clamp(0.0, 1.0));
         c.fill(162.0, 36.0, 34.0, 20.0, 10.0, mix(track, theme::WHITE, sh * 0.08));
         let kx = lerp(172.0, 186.0, on);
         c.circle(kx, 46.0, 8.0, theme::WHITE);
-        paint::bell(&c.scaled(kx, 46.0, 0.9), kx, 46.0, mix(Color32::from_gray(140), theme::BLUE, on.clamp(0.0, 1.0)),0.0);
+        let ink = mix(Color32::from_gray(140), accent, on.clamp(0.0, 1.0));
+        paint::bell(&c.scaled(kx, 46.0, 0.9), kx, 46.0, ink, 0.0);
         if sw.clicked() {
-            self.water.remind = !self.water.remind;
-            self.water.save();
-            self.last_reminder = self.t;
-            self.say(if self.water.remind { locale.text("饮水提醒已打开") } else { locale.text("饮水提醒已关闭") });
+            if sit {
+                self.settings.sit_remind = !self.settings.sit_remind;
+                self.settings.save();
+                self.confirm_health_reminder(crate::extras::HealthReminder::Sit);
+                self.say(if self.settings.sit_remind { "久坐提醒已打开" } else { "久坐提醒已关闭" });
+            } else {
+                self.water.remind = !self.water.remind;
+                self.water.save();
+                self.confirm_health_reminder(crate::extras::HealthReminder::Water);
+                self.say(if self.water.remind { "喝水提醒已打开" } else { "喝水提醒已关闭" });
+            }
+        }
+
+        let (s, sc) = capsule(c, 111.0, 98.0, 66.0, 25.0, "w-set", theme::BTN, theme::BTN_HOVER);
+        paint::sliders(&sc, 126.0, 110.5, theme::WHITE);
+        sc.text(149.0, 114.0, locale.text("设置"), size::BODY, W::Regular, theme::WHITE, H::Center);
+        if s.clicked() { self.open_settings_category(1); }
+        c.fill(208.0, 36.0, 1.0, 86.0, 0.5, Color32::from_rgb(30, 30, 33));
+
+        // 内容原地交叉淡化，不滑动；不可见的一侧不接收点击。
+        if sv < 0.99 {
+            let wc = c.faded(1.0 - sv);
+            self.water_body(&if sit { wc.ghost() } else { wc }, env);
+        }
+        if sv > 0.01 {
+            let sc = c.faded(sv);
+            self.sit_body(&if sit { sc } else { sc.ghost() }, env);
+        }
+    }
+
+    /// 标题「健康提醒」（「提醒」随模式变蓝 / 绿）与紧跟其后的分段切换：水滴 = 喝水，椅子 = 久坐。
+    /// 胶囊外框与标题字等高（11..27），读起来像标题的一部分。设置子页的标题也用它。
+    pub(crate) fn health_tabs(&mut self, c: &Card, x: f32, sv: f32) {
+        let locale=self.settings.locale();
+        let accent_now = mix(theme::BLUE, theme::SIT_GREEN, sv);
+        let wa = c.text(x, 25.0, locale.text("健康"), size::TITLE, W::Bold, theme::WHITE, H::Left);
+        let wb = c.text(x + wa + 1.5, 25.0, locale.text("提醒"), size::TITLE, W::Bold, accent_now, H::Left);
+        let x0 = x + wa + 1.5 + wb + 7.0;
+        let (w, y, h) = (22.0, 11.0, 16.0);
+        c.fill(x0, y, w * 2.0 + 3.0, h, h / 2.0, Color32::from_rgb(30, 30, 33));
+        let px = lerp(x0 + 1.5, x0 + 1.5 + w, sv);
+        let pill = mix(Color32::from_rgb(22, 62, 108), Color32::from_rgb(26, 84, 54), sv);
+        c.fill(px, y + 1.5, w, h - 3.0, (h - 3.0) / 2.0, pill);
+        for i in 0..2 {
+            let ix = x0 + 1.5 + i as f32 * w;
+            let r = c.hit(ix, y - 3.0, w, h + 6.0, ("health-tab", i))
+                .on_hover_text(if i == 0 { locale.text("喝水提醒") } else { locale.text("久坐提醒") });
+            let (hv, _) = c.hover_t(&r);
+            let act = if i == 0 { 1.0 - sv } else { sv };
+            let accent = if i == 0 { theme::BLUE } else { theme::SIT_GREEN };
+            let icon = mix(mix(Color32::from_gray(110), Color32::from_gray(170), hv), mix(accent, theme::WHITE, 0.25), act);
+            if i == 0 {
+                paint::droplet(c, ix + w / 2.0, y + h / 2.0, 8.5, icon);
+            } else {
+                paint::chair(c, ix + w / 2.0, y + h / 2.0, 0.34, icon);
+            }
+            if r.clicked() { self.sit_mode = i == 1; }
+        }
+    }
+
+    fn water_body(&mut self, c: &Card, env: &Env) {
+        let locale=self.settings.locale();
+        let pct = self.water.percent();
+        let liters = self.water_ml / 1000.0;
+        let pending=self.health_pending[crate::extras::HealthReminder::Water as usize];
+        if pending {
+            c.text(44.0,59.0,locale.text("待喝水"),24.0,W::Bold,theme::BLUE,H::Left);
+        }else{
+            let ww = c.text(44.0, 61.0, &format!("{liters:.1}"), size::HERO, W::Bold, theme::WHITE, H::Left);
+            c.text(44.0 + ww + 5.0, 60.0, &format!("/ {:.1} L", self.water.goal_ml as f32 / 1000.0), 11.0, W::Semibold, theme::GRAY, H::Left);
         }
 
         // 今天 · 3% · 下次 08:07
         let mut x = 44.0;
         x += c.text(x, 77.0, locale.text("今天 · "), size::SMALL, W::Regular, theme::GRAY, H::Left);
         x += c.text(x, 77.0, &format!("{pct:.0}%"), size::SMALL, W::Bold, theme::BLUE, H::Left);
-        if self.water.percent()>=100.0 {
+        if pending {
+            c.text(x,77.0,locale.text(" · 待确认"),size::SMALL,W::Regular,theme::BLUE,H::Left);
+        } else if self.water.percent()>=100.0 {
             c.text(x,77.0,locale.text(" · 已达标"),size::SMALL,W::Regular,theme::GRAY,H::Left);
+        } else if self.water.remind && self.lunch_now(env) {
+            c.text(x, 77.0, locale.text(" · 午休中"), size::SMALL, W::Regular, theme::GRAY, H::Left);
         } else if self.water.remind && self.water_hours(env.hour() as u32) {
             c.text(x, 77.0, &locale.format(" · 下次 {0}",&[("0",format!("{}",self.next_hint(env)))]), size::SMALL, W::Regular, theme::GRAY, H::Left);
         }
@@ -322,11 +472,7 @@ impl App {
         let (d, dc) = capsule(c, 43.0, 98.0, 62.0, 25.0, "w-drink", theme::BLUE_DEEP, Color32::from_rgb(22, 92, 165));
         paint::droplet(&dc, 56.0, 110.5, 11.0, Color32::from_rgb(120, 200, 255));
         dc.text(65.0, 114.0, locale.text("喝一口"), size::BODY, W::Semibold, Color32::from_rgb(220, 236, 255), H::Left);
-        let (s, sc) = capsule(c, 111.0, 98.0, 66.0, 25.0, "w-set", theme::BTN, theme::BTN_HOVER);
-        paint::sliders(&sc, 126.0, 110.5, theme::WHITE);
-        sc.text(if locale.is_english(){152.0}else{149.0}, 114.0, locale.text("设置"), if locale.is_english(){10.0}else{size::BODY}, W::Regular, theme::WHITE, H::Center);
         if d.clicked() { self.drink_water(); }
-        if s.clicked() { self.open_settings_category(1); }
         if self.last_drink.is_some() {
             c.text(191.0,114.0,locale.text("撤销"),10.5,W::Regular,theme::GRAY,H::Center);
             if c.hit(177.0,98.0,28.0,25.0,"water-undo").on_hover_text(locale.text("撤销最近一次饮水记录")).clicked() {
@@ -337,8 +483,6 @@ impl App {
                 }
             }
         }
-
-        c.fill(208.0, 36.0, 1.0, 86.0, 0.5, Color32::from_rgb(30, 30, 33));
 
         // 右侧：环形 ↔ 柱状图（点右侧区域或右上角两颗豆切换）
         let vt = self.water_view_t.pos;
@@ -357,7 +501,7 @@ impl App {
         if ring_a > 0.0 {
             let k = 1.0 + 0.22 * vt;
             let rc = c.faded(ring_a).scaled(292.0, 78.0, k);
-            Self::water_ring(&rc, 292.0, 78.0, 33.0, 6.0, f);
+            Self::progress_ring(&rc, 292.0, 78.0, 33.0, 6.0, f, theme::WATER_TRACK, theme::BLUE);
             rc.text(292.0, 86.0, &format!("{pct:.0}"), 26.0, W::Bold, theme::WHITE, H::Center);
             paint::droplet(&rc, 287.0, 97.0, 7.0, theme::CYAN);
             rc.text(292.5, 100.0, "%", 10.5, W::Semibold, Color32::from_gray(217), H::Left);
@@ -368,20 +512,81 @@ impl App {
         }
     }
 
+    /// 久坐：与喝水同一版式，但只讲一件事——「还有多久该起来」。
+    /// 左边大数字是倒计时，状态行补充已坐多久和几点提醒；右侧环是到下次提醒的进度，环心是椅子，
+    /// 提醒后保持待处理，确认或起身后才重新计时。
+    fn sit_body(&mut self, c: &Card, env: &Env) {
+        let locale=self.settings.locale();
+        let on = self.settings.sit_remind;
+        let sat = self.sat_minutes();
+        let goal = self.settings.sit_minutes.max(1);
+        let focusing = self.pomo.running && self.pomo.phase == Phase::Focus;
+        let lunch = self.lunch_now(env);
+        let in_hours = self.remind_window(env);
+        let left = ((self.sit_due() - self.t).max(0.0) / 60.0).ceil() as u32;
+        let pending = on && self.health_pending[crate::extras::HealthReminder::Sit as usize];
+        let counting = on && !pending && left > 0;
+        // 待处理时进度停在满环，确认后从零开始。
+        let frac = if on { (1.0 - (self.sit_due() - self.t) / (goal as f64 * 60.0)).clamp(0.0, 1.0) as f32 }
+            else { (sat as f32 / goal as f32).clamp(0.0, 1.0) };
+        let fill = theme::SIT_GREEN;
+
+        if pending {
+            c.text(44.0, 59.0, locale.text("待活动"), 24.0, W::Bold, fill, H::Left);
+        } else if counting {
+            let ww = c.text(44.0, 61.0, &left.to_string(), size::HERO, W::Bold, theme::WHITE, H::Left);
+            c.text(44.0 + ww + 5.0, 60.0, "分钟后提醒", 11.0, W::Semibold, theme::GRAY, H::Left);
+        } else {
+            c.text(44.0,59.0,if on{"等待提醒"}else{locale.text("已关闭")},24.0,W::Bold,theme::GRAY,H::Left);
+        }
+
+        // 已坐 25 分钟 · 10:45 提醒
+        let tail = if pending { "确认提醒或起身后重新计时".to_string() }
+            else if !on { "久坐提醒已关闭".to_string() }
+            else if lunch { "午休中不提醒".to_string() }
+            else if !in_hours { format!("{:02}:00–{:02}:00 外不提醒", self.settings.water_start, self.settings.water_end) }
+            else if !counting && focusing { "专注结束后再提醒".to_string() }
+            else { format!("{} 提醒", Self::clock_after(env, self.sit_due() - self.t)) };
+        let mut x = 44.0;
+        if !pending && counting {
+            x += c.text(x, 77.0, "已坐 ", size::SMALL, W::Regular, theme::GRAY, H::Left);
+            x += c.text(x, 77.0, &format!("{sat} 分钟"), size::SMALL, W::Bold, fill, H::Left);
+            x += c.text(x,77.0," · ",size::SMALL,W::Regular,theme::GRAY,H::Left);
+        }
+        c.text(x, 77.0, &tail, size::SMALL, W::Regular, theme::GRAY, H::Left);
+        c.fill(44.0, 84.0, 151.0, 3.5, 1.75, Color32::from_rgb(34, 34, 37));
+        if frac > 0.0 {
+            c.fill(44.0, 84.0, (151.0 * frac).max(3.5), 3.5, 1.75, fill);
+        }
+
+        let (b, bc) = capsule(c, 43.0, 98.0, 62.0, 25.0, "sit-stand", Color32::from_rgb(24, 84, 52), Color32::from_rgb(30, 104, 64));
+        paint::chair(&bc, 55.5, 110.5, 0.36, Color32::from_rgb(150, 230, 180));
+        bc.text(64.0, 114.0, locale.text("起身了"), size::BODY, W::Semibold, Color32::from_rgb(220, 244, 228), H::Left);
+        if b.on_hover_text("确认已起身，重新计时").clicked() { self.stood_up(); }
+
+        // 右侧：与喝水同一个环，环心是椅子。
+        Self::progress_ring(c, 292.0, 78.0, 33.0, 6.0, frac, Color32::from_rgb(16, 48, 32), if on { fill } else { Color32::from_gray(90) });
+        let (label, ink) = if !on { ("已关", theme::GRAY) }
+            else if pending { ("动一动", fill) }
+            else { ("坐着", Color32::from_gray(217)) };
+        paint::chair(c, 292.0, 76.0, 0.75, if !on { theme::GRAY } else if pending { fill } else { theme::WHITE });
+        c.text(292.0, 101.0, label, 10.5, W::Semibold, ink, H::Center);
+    }
+
     /// 底部留缺口的进度环（约 276°），起点有圆头亮点。
-    fn water_ring(c: &Card, cx: f32, cy: f32, r: f32, thick: f32, frac: f32) {
+    fn progress_ring(c: &Card, cx: f32, cy: f32, r: f32, thick: f32, frac: f32, track: Color32, color: Color32) {
         let start = 132.0f32.to_radians();
         let sweep = 276.0f32.to_radians();
-        c.arc(cx, cy, r, start, start + sweep, thick, theme::WATER_TRACK);
-        c.circle(cx + r * start.cos(), cy + r * start.sin(), thick * 0.5, theme::WATER_TRACK);
-        c.circle(cx + r * (start + sweep).cos(), cy + r * (start + sweep).sin(), thick * 0.5, theme::WATER_TRACK);
+        c.arc(cx, cy, r, start, start + sweep, thick, track);
+        c.circle(cx + r * start.cos(), cy + r * start.sin(), thick * 0.5, track);
+        c.circle(cx + r * (start + sweep).cos(), cy + r * (start + sweep).sin(), thick * 0.5, track);
         let end = start + sweep * frac;
         if frac > 0.002 {
-            c.arc(cx, cy, r, start, end, thick, theme::BLUE);
+            c.arc(cx, cy, r, start, end, thick, color);
         }
-        c.circle(cx + r * start.cos(), cy + r * start.sin(), thick * 0.55, theme::BLUE);
+        c.circle(cx + r * start.cos(), cy + r * start.sin(), thick * 0.55, color);
         if frac > 0.002 {
-            c.circle(cx + r * end.cos(), cy + r * end.sin(), thick * 0.5, theme::BLUE);
+            c.circle(cx + r * end.cos(), cy + r * end.sin(), thick * 0.5, color);
         }
     }
 
@@ -711,7 +916,7 @@ impl App {
     // ================= 待办 =================
     pub(crate) fn page_todo(&mut self, c: &Card, env: &Env, _cmds: &mut Vec<Cmd>) {
         let locale=self.settings.locale();
-        // 今天要做的在前；不在今天的每周重复待办排在后面，变暗显示、不能勾选。
+        // 今天未完成优先，已完成沉底；不在今天的重复待办变暗显示、不能勾选。
         let (done, total) = self.todos.progress(&env.today);
         let order = self.todos.display_order(&env.today);
         let count = order.len();
@@ -724,11 +929,11 @@ impl App {
         let (add, ac) = capsule(c, 41.0, 96.0, 74.0, 26.0, "t-add", theme::BTN, theme::BTN_HOVER);
         paint::plus(&ac, 56.0, 109.0, 6.2, theme::WHITE, Color32::BLACK);
         ac.text(67.0, 112.5, locale.text("加一个"), size::BODY, W::Regular, theme::WHITE, H::Left);
-        let can_edit = self.todos.items.iter().any(|t| !t.done_for(&env.today));
+        let can_edit = !self.todos.items.is_empty() && !self.adding && self.editing.is_none();
         let ec = if can_edit { c.clone() } else { c.faded(0.45) };
         let (edit, edc) = capsule(&ec, 121.0, 96.0, 68.0, 26.0, "t-edit", theme::BTN, if can_edit { theme::BTN_HOVER } else { theme::BTN });
-        paint::pencil(&edc, 135.0, 109.0, 11.0, theme::WHITE);
-        edc.text(145.0, 112.5, locale.text("改一下"), size::BODY, W::Regular, theme::WHITE, H::Left);
+        if self.todo_choosing{paint::close(&edc,135.0,109.0,3.5,theme::WHITE);}else{paint::pencil(&edc,135.0,109.0,11.0,theme::WHITE);}
+        edc.text(145.0, 112.5, if self.todo_choosing{locale.text("取消")}else{locale.text("改一下")}, size::BODY, W::Regular, theme::WHITE, H::Left);
 
         c.fill(196.0, 31.0, 181.0, 93.0, 12.0, theme::CARD);
         let editing = self.adding || self.editing.is_some();
@@ -771,10 +976,12 @@ impl App {
                 let checked = item.done_for(&env.today);
                 let ct = ctx.animate_bool_with_time(egui::Id::new(("todo-check", item.text.as_str())), checked, 0.28);
                 let rc = if today_item { c.clone() } else { c.faded(0.45) };
-                rc.ring(212.0, y, 5.2, 1.3, paint::alpha(Color32::from_gray(120), 1.0 - ct));
-                if ct > 0.0 {
-                    c.circle(212.0, y, 6.0 * anim::ease_out_cubic(ct.min(1.0) / 0.6).min(1.0), theme::GREEN);
-                    paint::check(c, 212.0, y, 6.0, smoothstep(0.3, 1.0, ct), 1.4, Color32::BLACK);
+                if self.todo_choosing{paint::pencil(c,212.0,y,10.0,theme::BLUE);}else{
+                    rc.ring(212.0, y, 5.2, 1.3, paint::alpha(Color32::from_gray(120), 1.0 - ct));
+                    if ct > 0.0 {
+                        c.circle(212.0, y, 6.0 * anim::ease_out_cubic(ct.min(1.0) / 0.6).min(1.0), theme::GREEN);
+                        paint::check(c, 212.0, y, 6.0, smoothstep(0.3, 1.0, ct), 1.4, Color32::BLACK);
+                    }
                 }
                 // 每周重复：文字右侧小标签（周一三五 / 工作日 / 每天）。
                 let tag = locale.repeat(item.repeat,true);
@@ -790,6 +997,11 @@ impl App {
                 if ct > 0.0 {
                     c.fill(223.0, y + 0.2, tw * smoothstep(0.2, 1.0, ct), 1.0, 0.5, Color32::from_gray(110));
                 }
+                if self.todo_choosing{
+                    c.text(366.0,y+3.8,locale.text("修改"),size::TINY,W::Regular,theme::BLUE,H::Right);
+                    if r.clicked(){self.todo_choosing=false;self.editing=Some(i);self.adding=false;self.buf=item.text.clone();self.todo_input_focused=false;break;}
+                    row+=1;shown+=1;continue;
+                }
                 let delete=c.hit(353.0,y-9.0,17.0,18.0,("todo-delete",i)).on_hover_text(locale.text("删除待办")).clicked();
                 paint::close(c,361.5,y,2.4,theme::GRAY);
                 let reminder=c.hit(333.0,y-9.0,18.0,18.0,("todo-reminder",i)).on_hover_text(item.due.as_ref().map(|due|if item.is_repeating(){format!("{} {}",locale.repeat(item.repeat,false),due.get(11..16).unwrap_or(due))}else{due.clone()}).map(|due|locale.format("提醒：{0} · 点击修改",&[("0",format!("{}",due))])).unwrap_or_else(||locale.text("设置提醒与每周重复（可选）").into()));
@@ -804,10 +1016,14 @@ impl App {
                     if ui.button(locale.text("取消提醒")).clicked(){self.todos.items[i].due=None;self.todos.save();ui.close_menu();}
                 });
                 if edit_this {self.open_task_dialog(i);}
-                if delete {self.todos.items.remove(i);self.todos.save();self.todo_first=self.todo_first.min(self.todos.items.len().saturating_sub(3));break;}
+                if delete {
+                    self.todos.items.remove(i);
+                    if let Some(index)=self.editing.as_mut(){if i<*index{*index-=1;}}
+                    self.todos.save();self.todo_first=self.todo_first.min(self.todos.items.len().saturating_sub(3));break;
+                }
                 if r.clicked() && !edit_this && !reminder_clicked && !today_item {
-                    self.say(locale.format("{0}的待办，今天不用做",&[("0",format!("{}",locale.repeat(item.repeat,false)))]));
-                } else if r.clicked() && !edit_this && !reminder_clicked {
+                    self.say(format!("{}的待办，今天不用做", crate::model::repeat_label(item.repeat)));
+                } else if r.clicked() && !r.double_clicked() && !edit_this && !reminder_clicked {
                     let now = self.todos.items[i].done_for(&env.today);
                     self.todos.items[i].toggle(&env.today);
                     self.todos.save();
@@ -820,12 +1036,15 @@ impl App {
                 shown += 1;
             }
             let rest = count.saturating_sub(shown + self.editing.map(|_|1).unwrap_or(0));
-            if rest > 0 {
-                c.text(370.0, 120.0, &locale.format("共 {0} 项 · 滚轮查看",&[("0",format!("{}",count))]), size::TINY, W::Regular, theme::DIM, H::Right);
+            if self.todo_choosing{
+                c.text(370.0,120.0,if rest>0{locale.text("点选修改 · 滚轮查看")}else{locale.text("点击要修改的事项")},size::TINY,W::Regular,theme::GRAY,H::Right);
+            }else if rest > 0 {
+                c.text(370.0, 120.0, &format!("共 {count} 项 · 滚轮查看"), size::TINY, W::Regular, theme::DIM, H::Right);
             }
         }
 
         if add.clicked() {
+            self.todo_choosing=false;
             self.todo_first=0;
             self.adding = true;
             self.editing = None;
@@ -833,12 +1052,13 @@ impl App {
             self.todo_input_focused=false;
         }
         if edit.clicked() && can_edit {
-            if let Some(i) = self.todos.items.iter().position(|t| !t.done_for(&env.today)) {
+            if count==1 {
+                let i=order[0];
                 self.editing = Some(i);
                 self.adding = false;
                 self.buf = self.todos.items[i].text.clone();
                 self.todo_input_focused=false;
-            }
+            }else{self.todo_choosing=!self.todo_choosing;if self.todo_choosing{self.pending.push(Cmd::Focus);}}
         }
     }
 
@@ -846,11 +1066,11 @@ impl App {
     // 邮件：有验证码大卡时分栏，否则显示紧凑单行列表。
     // ---------------------------------------------------------------
     fn visible_mail_code(&self)->Option<&mail::Item> {
-        self.mail.code_item().filter(|item|self.settings.mail_code && !self.mail_code_hidden(item))
+        self.mail.code_item().filter(|item|!self.mail.manage.trash_open && self.settings.mail_code && !self.mail_code_hidden(item))
     }
     pub(crate) fn mail_list_bounds(&self)->Rect {
         let left=if self.visible_mail_code().is_some(){182.0}else{36.0};
-        Rect::from_min_max(Pos2::new(left,36.0),Pos2::new(380.0,122.0))
+        Rect::from_min_max(Pos2::new(left,54.0),Pos2::new(380.0,122.0))
     }
     pub(crate) fn page_mail(&mut self, c: &Card, _env: &Env, cmds: &mut Vec<Cmd>) {
         let locale=self.settings.locale();
@@ -866,11 +1086,10 @@ impl App {
             return;
         }
 
+        self.mail_manage_tick();
         // v0.5.5：点开某封邮件 → 整块换成正文摘要，左上「返回」回到列表。
         if let Some((account, uid)) = self.mail.open_uid.clone() {
-            match self
-                .mail
-                .recent
+            match self.mail_rows()
                 .iter()
                 .find(|m| m.uid == uid && m.account.eq_ignore_ascii_case(&account))
                 .cloned()
@@ -890,54 +1109,97 @@ impl App {
             let value=item.code.as_deref().unwrap_or("••••••");
             c.text(46.0,51.0,locale.text("验证码"),10.5,W::Regular,theme::GRAY,H::Left);
             c.text(166.0,51.0,&c.fit(&item.from,10.5,W::Semibold,78.0),10.5,W::Semibold,theme::WHITE,H::Right);
-            c.text(46.0,75.0,value,23.0,W::Bold,theme::GREEN,H::Left);
+            let code_size=23.0*(120.0/c.text_w(value,23.0,W::Bold)).min(1.0);
+            c.text(46.0,75.0,value,code_size,W::Bold,theme::GREEN,H::Left);
             c.text(46.0,91.0,&c.fit(&item.subject,10.5,W::Regular,120.0),10.5,W::Regular,Color32::from_gray(190),H::Left);
             c.text(46.0,108.0,if hidden{locale.text("已隐藏 · 点击查看")}else{locale.text("点击复制")},10.5,W::Regular,theme::DIM,H::Left);
             c.text(166.0,108.0,item.time.rsplit(' ').next().unwrap_or(&item.time),10.0,W::Regular,theme::GRAY,H::Right);
             c.hit(42.0,38.0,128.0,16.0,"mail-code-source").on_hover_text(locale.format("来自：{0}\n{1}\n收件邮箱：{2}\n{3}",&[("0",format!("{}",item.from)),("1",format!("{}",item.subject)),("2",format!("{}",item.account)),("3",format!("{}",item.time))]));
             if c.hit(40.0,56.0,132.0,38.0,("mail-code",item.uid)).on_hover_text(locale.format("复制 {0} 的验证码",&[("0",format!("{}",item.from))])).clicked(){if hidden{self.reveal_mail_code(raw);}else{cmds.push(Cmd::Copy(value.to_string()));self.code_copied(value);}}
         }
-        let list_bounds=self.mail_list_bounds();
-        let list_x=list_bounds.left();
-        let list_w=list_bounds.width();
-        let row_w=list_w-12.0;
-        let compact=code.is_none();
-        let row_h=if compact {21.5}else{34.0};
-        if self.mail.recent.is_empty(){c.text(list_x+6.0,66.0,locale.text("还没有收到邮件"),11.0,W::Regular,theme::GRAY,H::Left);return;}
+        use crate::mail_manage::{Action,Folder};
+        let folder=self.mail.manage.folder();let trash=folder==Folder::Trash;
+        let list_bounds=self.mail_list_bounds();let list_x=list_bounds.left();let row_w=list_bounds.width()-12.0;
+        let compact=code.is_none();let row_h=if compact{21.5}else{34.0};
+        let all_count=self.mail.recent.len();
+        let unread=self.mail.recent.iter().filter(|m|self.mail_seen(m,Folder::Inbox)==Some(false)).count();
+        if trash{
+            c.text(list_x+6.0,47.0,&format!("{} {}",if self.settings.mail_sync_operations{locale.text("回收站")}else{locale.text("本机回收站")},self.mail.manage.trash.len()),10.5,W::Semibold,theme::WHITE,H::Left);
+            c.text(375.0,47.0,locale.text("返回邮件"),10.0,W::Regular,theme::BLUE,H::Right);
+            if c.hit(322.0,33.0,56.0,19.0,"mail-trash-back").clicked(){self.mail_toggle_trash();return;}
+        }else{
+            for (x,width,label,selected,id) in [
+                (list_x,52.0,locale.format("全部 {0}",&[("0",all_count.to_string())]),!self.mail.manage.unread_only,"mail-all"),
+                (list_x+56.0,52.0,locale.format("未读 {0}",&[("0",unread.to_string())]),self.mail.manage.unread_only,"mail-unread"),
+            ]{
+                if selected{c.fill(x,33.0,width,19.0,6.0,theme::BTN);}
+                c.text(x+width/2.0,47.0,&label,10.0,W::Semibold,if selected{theme::WHITE}else{theme::GRAY},H::Center);
+                if c.hit(x,33.0,width,19.0,id).on_hover_text(locale.text("当前加载的最近邮件")).clicked(){self.mail.manage.unread_only=id=="mail-unread";}
+            }
+            c.text(307.0,46.0,if self.settings.mail_sync_operations{locale.text("同步")}else{locale.text("仅本机")},8.0,W::Regular,theme::DIM,H::Center);
+            let ready=self.mail.manage.pending.is_empty()&&self.mail.accounts.iter().any(|a|a.enabled&&self.mail.manage.data.contains_key(&(crate::mail::key(a),Folder::Inbox))&&self.mail.manage.identities.get(&crate::mail::key(a))==Some(a));
+            c.text(375.0,47.0,locale.text("全部已读"),10.0,W::Regular,if ready{theme::BLUE}else{theme::DIM},H::Right);
+            if c.hit(325.0,33.0,53.0,19.0,"mail-read-all").on_hover_text(if self.settings.mail_sync_operations{locale.text("将已连接邮箱的未读邮件全部标为已读")}else{locale.text("仅将岛仔当前加载的邮件标为已读，不更改邮箱")}).clicked()&&ready{
+                self.mail_manage_request(None,Folder::Inbox,Action::ReadAll);
+            }
+        }
+        if !trash{
+            let hit=c.hit(359.0,122.0,22.0,17.0,"mail-trash").on_hover_text(locale.text("回收站"));
+            crate::mail_manage_ui::trash_icon(c,370.0,130.0,if hit.hovered(){theme::WHITE}else{theme::GRAY});
+            if hit.clicked(){self.mail_toggle_trash();return;}
+        }
+        if !self.mail.manage.message.is_empty(){
+            c.text(42.0,134.0,&c.fit(&self.mail.manage.message,8.0,W::Regular,125.0),8.0,W::Regular,theme::GRAY,H::Left);
+            if c.hit(40.0,123.0,130.0,16.0,"mail-manage-status").on_hover_text(format!("{}\n点击刷新邮件状态",self.mail.manage.message)).clicked(){self.mail_manage_request(None,folder,Action::Load);}
+        }
+        let indices:Vec<_>=self.mail_rows().iter().enumerate().filter(|(_,m)|trash||!self.mail.manage.unread_only||self.mail_seen(m,folder)==Some(false)).map(|(i,_)|i).collect();
+        if indices.is_empty(){
+            let message=locale.text(if !self.mail.manage.pending.is_empty(){"正在同步邮件…"}else if trash{"回收站为空"}else if self.mail.manage.unread_only{"没有未读邮件"}else{"还没有收到邮件"});
+            c.text(list_x+6.0,80.0,message,11.0,W::Regular,theme::GRAY,H::Left);return;
+        }
         let mut content=egui::Ui::new(c.ui.ctx().clone(),egui::Id::new(("mail-list",c.live)),
             egui::UiBuilder::new().max_rect(c.rect(list_bounds.left(),list_bounds.top(),list_bounds.width(),list_bounds.height())).layer_id(c.painter.layer_id()).style(c.ui.style().clone()));
         content.set_clip_rect(c.rect(list_bounds.left(),list_bounds.top(),list_bounds.width(),list_bounds.height()).intersect(c.painter.clip_rect()));
         content.set_opacity(c.painter.opacity());if !c.live{content.disable();}
-        content.spacing_mut().item_spacing.y=0.0;
-        content.spacing_mut().scroll.floating=false;
-        content.spacing_mut().scroll.bar_width=4.0*c.s;
+        content.spacing_mut().item_spacing.y=0.0;content.spacing_mut().scroll.floating=false;content.spacing_mut().scroll.bar_width=4.0*c.s;
         content.visuals_mut().widgets.inactive.bg_fill=Color32::from_gray(80);
-        egui::ScrollArea::vertical().id_salt("mail-list-scroll").max_height(list_bounds.height()*c.s).auto_shrink([false,false]).scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).show_rows(&mut content,row_h*c.s,self.mail.recent.len(),|ui,range|{
-            let rows:Vec<_>=self.mail.recent[range].iter().map(|item|(self.mail_code_hidden(item),self.display_mail(item))).collect();
-            for (hidden,item) in &rows {
-                let (rect,_)=ui.allocate_exact_size(egui::vec2(row_w*c.s,row_h*c.s),egui::Sense::hover());
+        egui::ScrollArea::vertical().id_salt(("mail-list-scroll",trash,self.mail.manage.unread_only)).max_height(list_bounds.height()*c.s).auto_shrink([false,false]).scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).show_rows(&mut content,row_h*c.s,indices.len(),|ui,range|{
+            let rows:Vec<_>=range.map(|i|self.mail_rows()[indices[i]].clone()).collect();
+            for raw in rows{
+                let item=self.display_mail(&raw);let hidden=self.mail_code_hidden(&raw);let seen=self.mail_seen(&raw,folder);
+                let(rect,_)=ui.allocate_exact_size(egui::vec2(row_w*c.s,row_h*c.s),egui::Sense::hover());
                 let mut row=Card::new(ui,rect.min,ui.clip_rect());row.s=c.s;row.live=c.live;
                 let hit=row.hit(0.0,0.0,row_w,row_h-1.0,("mail-row",item.uid,item.account.as_str()));
-                let selected=code.as_ref().is_some_and(|m|m.uid==item.uid&&m.account.eq_ignore_ascii_case(&item.account));
-                if hit.hovered()||selected{row.fill(0.0,0.0,row_w,row_h-2.0,6.0,Color32::from_gray(if hit.hovered(){27}else{17}));}
-                if selected{row.fill(0.0,6.0,2.0,20.0,1.0,theme::GREEN);}
-                if compact {
-                    row.text(6.0,14.0,&row.fit(&item.from,11.0,W::Semibold,62.0),11.0,W::Semibold,theme::WHITE,H::Left);
-                    let subject_w=row_w-118.0-if *hidden {34.0}else{0.0};
-                    let width=row.text(74.0,14.0,&row.fit(&item.subject,10.5,W::Regular,subject_w),10.5,W::Regular,Color32::from_gray(200),H::Left);
-                    if *hidden {
-                        row.fill(78.0+width,5.0,30.0,12.0,3.0,theme::BTN);
-                        row.text(93.0+width,14.0,locale.text("已隐藏"),8.5,W::Regular,theme::GRAY,H::Center);
-                    }
-                    row.text(row_w-6.0,14.0,item.time.rsplit(' ').next().unwrap_or(&item.time),10.0,W::Regular,Color32::from_gray(170),H::Right);
-                    row.seg((6.0,row_h-0.5),(row_w-6.0,row_h-0.5),0.5,Color32::from_gray(40));
-                } else {
-                row.text(6.0,12.0,&row.fit(&item.from,11.5,W::Semibold,row_w-54.0),11.5,W::Semibold,theme::WHITE,H::Left);
-                row.text(row_w-6.0,12.0,item.time.rsplit(' ').next().unwrap_or(&item.time),10.0,W::Regular,Color32::from_gray(170),H::Right);
-                row.text(6.0,27.0,&row.fit(&item.subject,10.5,W::Regular,row_w-12.0),10.5,W::Regular,Color32::from_gray(200),H::Left);
+                let hovered=ui.ctx().pointer_hover_pos().is_some_and(|p|rect.contains(p)&&ui.clip_rect().contains(p));
+                let ready=self.mail_ready(&item.account,folder);let actions=trash||hovered&&ready;
+                if hovered{row.fill(0.0,0.0,row_w,row_h-1.0,5.0,Color32::from_gray(29));}
+                if seen==Some(false)&&!trash{row.circle(5.0,if compact{10.5}else{8.0},2.1,theme::BLUE);}
+                let ink=if seen==Some(true){theme::GRAY}else{theme::WHITE};
+                if compact{
+                    row.text(12.0,14.0,&row.fit(&item.from,11.0,W::Semibold,57.0),11.0,W::Semibold,ink,H::Left);
+                    let subject_w=(row_w-128.0-if hidden{32.0}else{0.0}).max(10.0);
+                    let width=row.text(76.0,14.0,&row.fit(&item.subject,10.5,W::Regular,subject_w),10.5,W::Regular,if seen==Some(true){theme::GRAY}else{Color32::from_gray(210)},H::Left);
+                    if hidden{row.fill(80.0+width,5.0,29.0,12.0,3.0,theme::BTN);row.text(94.5+width,14.0,locale.text("已隐藏"),8.0,W::Regular,theme::GRAY,H::Center);}
+                }else{
+                    row.text(12.0,12.0,&row.fit(&item.from,11.0,W::Semibold,row_w-65.0),11.0,W::Semibold,ink,H::Left);
+                    row.text(12.0,27.0,&row.fit(&item.subject,10.0,W::Regular,row_w-20.0),10.0,W::Regular,theme::GRAY,H::Left);
                 }
-                hit.clone().on_hover_text(locale.format("{0}\n{1}\n收件邮箱：{2}\n{3}",&[("0",format!("{}",item.from)),("1",format!("{}",item.subject)),("2",format!("{}",item.account)),("3",format!("{}",item.time))]));
-                if hit.clicked(){self.mail.open_uid=Some((item.account.clone(),item.uid));}
+                let cy=if compact{10.0}else{8.0};let mut acted=false;
+                if actions{
+                    if trash{
+                        row.text(row_w-5.0,cy+4.0,locale.text("恢复"),10.0,W::Regular,if ready{theme::BLUE}else{theme::DIM},H::Right);
+                        if row.hit(row_w-39.0,0.0,36.0,20.0,("mail-restore",item.uid,item.account.as_str())).clicked()&&ready{self.mail_manage_request(Some(&item.account),folder,Action::Move{uid:item.uid});acted=true;}
+                    }else{
+                        row.ring(row_w-35.0,cy,4.7,1.1,theme::GRAY);paint::check(&row,row_w-35.0,cy,6.0,if seen==Some(true){1.0}else{0.0},1.1,theme::GRAY);
+                        if row.hit(row_w-45.0,0.0,20.0,20.0,("mail-seen",item.uid,item.account.as_str())).on_hover_text(if seen==Some(true){locale.text("标为未读")}else{locale.text("标为已读")}).clicked(){self.mail_manage_request(Some(&item.account),folder,Action::Read{uid:item.uid,seen:seen!=Some(true)});acted=true;}
+                        let remove=row.hit(row_w-24.0,0.0,21.0,20.0,("mail-delete",item.uid,item.account.as_str())).on_hover_text(if self.settings.mail_sync_operations{locale.text("移到邮箱回收站")}else{locale.text("移到本机回收站，不更改邮箱")});
+                        crate::mail_manage_ui::trash_icon(&row,row_w-14.0,cy,if remove.hovered(){theme::RED}else{theme::GRAY});
+                        if remove.clicked(){self.mail_manage_request(Some(&item.account),folder,Action::Move{uid:item.uid});acted=true;}
+                    }
+                }else{row.text(row_w-6.0,cy+4.0,item.time.rsplit(' ').next().unwrap_or(&item.time),10.0,W::Regular,theme::GRAY,H::Right);}
+                row.seg((6.0,row_h-0.5),(row_w-6.0,row_h-0.5),0.5,Color32::from_gray(40));
+                hit.clone().on_hover_text(format!("{}\n{}\n收件邮箱：{}\n{}",item.from,item.subject,item.account,item.time));
+                if hit.clicked()&&!acted{self.mail_open(&raw);}
             }
         });
     }
@@ -947,6 +1209,7 @@ impl App {
         let locale=self.settings.locale();
         let hidden=self.mail_code_hidden(raw);
         let display=self.display_mail(raw);let item=&display;
+        let body=self.mail_body_lines(item);
         c.fill(36.0, 36.0, 347.0, 188.0, 11.0, theme::CARD);
         let back = c.hit(330.0, 42.0, 44.0, 14.0, ("mail-back", item.uid));
         let bh = c.hover_t(&back).0;
@@ -955,11 +1218,23 @@ impl App {
             self.mail.open_uid = None;
             return;
         }
-        let from = c.fit(&item.from, 11.5, W::Semibold, 210.0);
+        let folder=self.mail.manage.folder();let ready=self.mail_ready(&item.account,folder);
+        let seen=self.mail_seen(raw,folder)==Some(true);
+        let status=if folder==crate::mail_manage::Folder::Trash{"恢复"}else if seen{"标为未读"}else{"标为已读"};
+        c.text(215.0,50.0,status,9.0,W::Regular,if ready{theme::BLUE}else{theme::DIM},H::Right);
+        if c.hit(166.0,39.0,50.0,18.0,("mail-detail-seen",item.uid)).clicked()&&ready{
+            let action=if folder==crate::mail_manage::Folder::Trash{crate::mail_manage::Action::Move{uid:item.uid}}else{crate::mail_manage::Action::Read{uid:item.uid,seen:!seen}};
+            self.mail_manage_request(Some(&item.account),folder,action);
+        }
+        if folder==crate::mail_manage::Folder::Inbox{
+            c.text(252.0,50.0,locale.text("删除"),9.0,W::Regular,if ready{theme::RED}else{theme::DIM},H::Right);
+            if c.hit(220.0,39.0,35.0,18.0,("mail-detail-delete",item.uid)).on_hover_text(if self.settings.mail_sync_operations{locale.text("移到邮箱回收站")}else{locale.text("移到本机回收站，不更改邮箱")}).clicked()&&ready{self.mail_manage_request(Some(&item.account),folder,crate::mail_manage::Action::Move{uid:item.uid});}
+        }
+        let from = c.fit(&item.from, 11.5, W::Semibold, 112.0);
         c.text(46.0, 50.0, &from, 11.5, W::Semibold, theme::WHITE, H::Left);
         let read=c.hit(266.0,42.0,60.0,14.0,("mail-read",&item.account,item.uid)).on_hover_text(locale.text("在独立窗口阅读完整正文"));
         c.text(324.0,50.0,locale.text("阅读全文"),10.5,W::Regular,if read.hovered(){theme::BLUE}else{theme::GRAY},H::Right);
-        if read.clicked(){self.mail.reading=Some(raw.clone());self.mail.reader_focus=true;}
+        if read.clicked(){self.mail_open_reader(raw);}
         let subject = c.fit(&item.subject, 13.5, W::Semibold, 328.0);
         c.text(46.0, 73.0, &subject, 13.5, W::Semibold, theme::WHITE, H::Left);
         c.hit(46.0,58.0,328.0,20.0,("mail-subject",&item.account,item.uid)).on_hover_text(&item.subject);
@@ -978,8 +1253,8 @@ impl App {
         content.style_mut().spacing.scroll.floating=false;
         content.spacing_mut().scroll.bar_width=4.0*c.s;
         egui::ScrollArea::vertical().id_salt(("mail-body",&item.account,item.uid)).max_height(90.0*c.s).auto_shrink([false,false]).show(&mut content,|ui|{
-            if !item.summary.is_empty() {
-                ui.add(egui::Label::new(egui::RichText::new(item.summary.as_ref()).font(c.font(12.0,W::Regular)).color(Color32::from_gray(220))).wrap());
+            if !body.is_empty() {
+                crate::mail_reader::body_ui(ui,body.as_ref(),11.5*c.s);
             }else if item.links.is_empty(){
                 ui.label(egui::RichText::new(locale.text("（这封邮件没有正文）")).font(c.font(12.0,W::Regular)).color(theme::DIM));
             }
@@ -991,6 +1266,10 @@ impl App {
             }
         });
 
+        if !self.mail.manage.message.is_empty(){
+            c.text(46.0,229.0,&c.fit(&self.mail.manage.message,8.0,W::Regular,130.0),8.0,W::Regular,theme::GRAY,H::Left);
+            c.hit(44.0,219.0,132.0,15.0,"mail-detail-status").on_hover_text(&self.mail.manage.message);
+        }
         // 底部一行：会议时间（绿）优先，其次验证码（点一下复制）。
         c.seg((46.0,199.0),(374.0,199.0),0.6,Color32::from_gray(48));
         let y = 214.0;

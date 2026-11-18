@@ -8,13 +8,15 @@ Get-Process islo -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq $exeP
 $shell=New-Object -ComObject WScript.Shell
 $cliPath=Join-Path $installDir 'islo-cli.exe'
 if(Test-Path -LiteralPath $cliPath){& $cliPath --unregister-cli;if($LASTEXITCODE -ne 0){throw '无法撤销 CLI 命令注册，卸载已停止。'}}
-$links=@((Join-Path $shell.SpecialFolders.Item('Desktop') 'islo.lnk'),(Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\islo.lnk'),(Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\islo设置.lnk'))
+$links=@((Join-Path $shell.SpecialFolders.Item('Desktop') 'islo.lnk'),(Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\islo.lnk'),(Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\islo设置.lnk'),(Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\收集islo诊断.lnk'))
 foreach($path in $links){if((Test-Path -LiteralPath $path) -and $shell.CreateShortcut($path).TargetPath -eq $exePath){Remove-Item -LiteralPath $path}}
 $runKey='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 Remove-ItemProperty -Path $runKey -Name islo -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\islo' -ErrorAction SilentlyContinue
-foreach($name in @('islo.exe','islo-cli.exe','islo-previous.exe','islo-v0.2-backup.exe','THIRD_PARTY_NOTICES.txt','LICENSE','LICENSES.md','uninstall.ps1')){
+foreach($name in @('islo.exe','islo-cli.exe','islo-previous.exe','islo-v0.2-backup.exe','THIRD_PARTY_NOTICES.txt','LICENSE','LICENSES.md','uninstall.ps1','收集islo诊断.cmd','scripts\collect-diagnostics.ps1')){
     $path=Join-Path $installDir $name;if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path}
 }
+$tools=Join-Path $installDir 'scripts'
+if((Test-Path -LiteralPath $tools) -and -not(Get-ChildItem -LiteralPath $tools -Force)){Remove-Item -LiteralPath $tools}
 if(-not(Get-ChildItem -LiteralPath $installDir -Force)){Remove-Item -LiteralPath $installDir}
 Write-Output 'islo已卸载。待办、饮水记录和设置仍保存在本机用户数据目录中。'

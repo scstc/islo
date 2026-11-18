@@ -35,14 +35,14 @@ fn background_service_sample(){
         "media"=>{islo::smtc::spawn_poller(media.clone(),context);},
         "bluetooth"=>bluetooth=Some(islo::bt::spawn()),
         "system"=>system=Some(islo::system::observe(context,Default::default(),None)),
-        "notifications"=>notifications=Some(islo::system::connect(context,false).expect("已有通知权限")),
+        "notifications"=>notifications=Some(islo::system::connect(context,islo::messenger::NotificationFilter::All).expect("已有通知权限")),
         "mail"=>{
             let accounts=islo::mail::load_accounts().into_iter().filter(|a|a.enabled).take(1).collect::<Vec<_>>();
             assert_eq!(accounts.len(),1,"需要一个已配置邮箱");
             let worker=islo::mail::Service::start();worker.sync(&accounts,120);mail=Some(worker);
         },
         "calendar"=>{let configs=islo::calendar::load_configs();println!("configured_accounts={}",configs.len());let worker=islo::calendar::Service::start();worker.configure(configs,true);calendar=Some(worker);},
-        "quota"=>{let config=islo::quota::Config::load();let accounts=config.accounts.iter().filter(|a|config.enabled && a.enabled).cloned().collect::<Vec<_>>();println!("configured_accounts={}",accounts.len());let worker=islo::quota::Service::start();worker.refresh(accounts);quota=Some((worker,config));},
+        "quota"=>{let config=islo::quota::Config::load();let accounts=config.accounts.iter().filter(|a|config.enabled && a.enabled).cloned().collect::<Vec<_>>();println!("configured_accounts={}",accounts.len());let mut worker=islo::quota::Service::start();worker.refresh(accounts);quota=Some((worker,config));},
         "idle"=>{},_=>panic!("未知采样服务"),
     }
     let before=sample();let started=Instant::now();

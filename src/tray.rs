@@ -69,6 +69,7 @@ struct Ctx {
     state: Arc<Mutex<State>>,
     taskbar_msg: u32,
     hicon: HICON,
+    before_exit: Box<dyn Fn() + Send>,
     added: AtomicBool,
     adds: AtomicU32,
 }
@@ -289,7 +290,7 @@ fn show_menu_at(hwnd: HWND, ctx: &Ctx, x: i32, y: i32) {
             CMD_SETTINGS => {let _=ctx.tx.send(Event::OpenSettings);}
             CMD_ABOUT => about(ctx.state().locale),
             CMD_EXIT => {
-                // 原版：先摘图标，再结束进程
+                (ctx.before_exit)();
                 remove_icon(hwnd);
                 ExitProcess(0);
             }
@@ -364,7 +365,16 @@ pub struct Tray {
 }
 
 impl Tray {
-    pub fn start(state: State) -> Option<Self> {
+    /// 与托盘菜单「退出」相同：先摘图标再结束进程（用于「立即重启」）。
+    pub fn exit_process(&self) -> ! {
+        unsafe { remove_icon(self.hwnd); ExitProcess(0); }
+    }
+}
+
+impl Tray {
+    pub fn start(state: State) -> Option<Self> {Self::start_with_exit(state,||{})}
+
+    pub(crate) fn start_with_exit(state: State,before_exit:impl Fn()+Send+'static) -> Option<Self> {
         let shared = Arc::new(Mutex::new(state));
         let (event_tx, event_rx) = channel();
         let (ready_tx, ready_rx) = channel();
@@ -416,6 +426,7 @@ impl Tray {
                     return;
                 };
                 let ctx = Box::new(Ctx {
+                    before_exit:Box::new(before_exit),
                     tx: event_tx,
                     state: thread_state,
                     taskbar_msg: RegisterWindowMessageW(w!("TaskbarCreated")),
@@ -660,5 +671,7 @@ pub fn activate_existing(calendar:bool)->bool {unsafe{
     // 托盘有独立线程，能接收消息不代表界面线程仍可响应。
     if SendMessageTimeoutW(window,WM_NULL,WPARAM(0),LPARAM(0),
         SMTO_ABORTIFHUNG|SMTO_ERRORONEXIT,1500,None).0==0{return false;}
+    // 用户再次启动时，把新进程的前台激活权限交给现有实例，无需模拟按键。
+    let _=AllowSetForegroundWindow(tray_pid);
     request_existing_window(tray,calendar)
 }}

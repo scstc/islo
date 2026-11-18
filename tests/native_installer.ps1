@@ -92,12 +92,31 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $installed 'user-file.txt'))) { throw '卸载误删额外文件' }
     if ((Get-Content -LiteralPath $sentinel -Raw).Trim() -ne 'keep-user-data') { throw '卸载误删用户数据' }
     Write-Output '通过：原生卸载、保留用户数据和额外文件'
+    # 选了装着其他软件的共享文件夹：自动装进其中的专用子文件夹，登记大小只算岛仔自己的文件。
+    $shared = Join-Path $root 'shared apps'
+    New-Item -ItemType Directory -Path (Join-Path $shared 'Other App') -Force | Out-Null
+    [IO.File]::WriteAllBytes((Join-Path $shared 'Other App\big.bin'), (New-Object byte[] (40MB)))
+    Set-Content -LiteralPath (Join-Path $shared 'other.txt') -Value 'other-software'
+    $installed = Join-Path $shared $id
+    $process = Start-Process -FilePath $setup -ArgumentList @('/S',"/D=$shared") -WindowStyle Hidden -PassThru
+    if (-not $process.WaitForExit(30000) -or $process.ExitCode -ne 0) { throw '共享文件夹安装失败或超时' }
+    Assert-Installed
+    if (Test-Path -LiteralPath (Join-Path $shared 'islo.exe')) { throw '程序被直接装进了共享文件夹' }
+    if ((Get-ItemProperty -LiteralPath $key).EstimatedSize -ge 40000) { throw '登记大小把共享文件夹里的其他软件算了进去' }
+    Write-Output '通过：共享文件夹自动建立专用子文件夹、登记大小只算岛仔'
+    Run-Setup -UseRegisteredPath
+    Assert-Installed
+    Write-Output '通过：专用子文件夹原地升级'
+    $process = Start-Process -FilePath (Join-Path $installed 'Uninstall.exe') -ArgumentList @('/S',"_?=$installed") -WindowStyle Hidden -PassThru
+    if (-not $process.WaitForExit(30000) -or $process.ExitCode -ne 0) { throw '共享文件夹卸载失败或超时' }
+    if (-not (Test-Path -LiteralPath (Join-Path $shared 'other.txt')) -or -not (Test-Path -LiteralPath (Join-Path $shared 'Other App\big.bin'))) { throw '卸载误删共享文件夹里的其他软件' }
+    Write-Output '通过：卸载不影响共享文件夹里的其他软件'
 } finally {
     # 清理本测试的独立安装，避免失败时残留桌面快捷方式和自启项。
     if (Test-Path -LiteralPath $key) {
         $cleanupDirectory = (Get-ItemProperty -LiteralPath $key).InstallLocation
         $defaultDirectory = Join-Path $env:LOCALAPPDATA "Programs\$id"
-        if ($cleanupDirectory -ne $installed -and $cleanupDirectory -ne $defaultDirectory) { throw '测试清理目录超出预期范围' }
+        if ($cleanupDirectory -ne $installed -and $cleanupDirectory -ne $defaultDirectory -and $cleanupDirectory -ne (Join-Path $root "shared apps\$id")) { throw '测试清理目录超出预期范围' }
         $cleanup = Start-Process -FilePath (Join-Path $cleanupDirectory 'Uninstall.exe') -ArgumentList @('/S',"_?=$cleanupDirectory") -WindowStyle Hidden -PassThru
         $null = $cleanup.WaitForExit(30000)
     }

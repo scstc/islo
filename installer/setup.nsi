@@ -132,23 +132,81 @@ Function InstallPage
   nsDialogs::Show
 FunctionEnd
 
+; 只接受盘符或 UNC 共享下的完整子目录。先规范化，避免把空输入或盘符补成安装路径。
+Function CheckFolderPath
+  ${GetRoot} "$INSTDIR" $0
+  ${If} $0 != ""
+    StrLen $1 $0
+    StrCpy $2 "$INSTDIR" "" $1
+    StrCpy $1 $2 1
+    ${If} $1 == "\"
+    ${AndIf} $2 != "\"
+      System::Call 'kernel32::GetFullPathNameW(w "$INSTDIR", i ${NSIS_MAX_STRLEN}, w .r2, p 0) i .r0'
+      ${If} $0 == 0
+      ${OrIf} $0 >= ${NSIS_MAX_STRLEN}
+        Goto invalid_path
+      ${EndIf}
+      System::Call 'shlwapi::PathIsRootW(w "$2") i .r0'
+      ${If} $0 == 0
+        StrCpy $INSTDIR $2
+        StrCpy $0 1
+        Return
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+  invalid_path:
+  StrCpy $0 0
+FunctionEnd
+
+; 选中的文件夹里已有别的东西（又不是岛仔自己的）时，在其中新建 Daozai 子文件夹，
+; 避免把整个共享文件夹登记成岛仔的安装位置（软件管家会把整个文件夹的大小算到岛仔头上）。
+; 文件夹本身叫 Daozai、里面已有岛仔（原地升级）、不存在或为空（用户特意准备的）时原样使用。
+Function EnsureOwnFolder
+  Call CheckFolderPath
+  ${If} $0 == 0
+    Return
+  ${EndIf}
+  StrCpy $0 $INSTDIR 1 -1
+  ${If} $0 == "\"
+    StrCpy $INSTDIR $INSTDIR -1
+  ${EndIf}
+  ${GetFileName} "$INSTDIR" $0
+  ${If} $0 == "${APP_ID}"
+    Return
+  ${EndIf}
+  ${If} ${FileExists} "$INSTDIR\islo.exe"
+    Return
+  ${EndIf}
+  ClearErrors
+  FindFirst $1 $2 "$INSTDIR\*.*"
+  ${DoWhile} $2 != ""
+    ${If} $2 != "."
+    ${AndIf} $2 != ".."
+      FindClose $1
+      StrCpy $INSTDIR "$INSTDIR\${APP_ID}"
+      Return
+    ${EndIf}
+    FindNext $1 $2
+  ${Loop}
+  FindClose $1
+  ClearErrors
+FunctionEnd
+
 Function BrowseDirectory
   Pop $0
   ${NSD_GetText} $PathInput $0
   nsDialogs::SelectFolderDialog "选择islo安装文件夹" "$0"
   Pop $0
   ${If} $0 != "error"
-    ${NSD_SetText} $PathInput "$0"
+    StrCpy $INSTDIR $0
+    Call EnsureOwnFolder
+    ${NSD_SetText} $PathInput "$INSTDIR"
   ${EndIf}
 FunctionEnd
 
 Function ValidateDirectory
-  System::Call 'shlwapi::PathIsRelativeW(w "$INSTDIR") i .r0'
-  ${If} $0 != 0
-    Goto invalid
-  ${EndIf}
-  System::Call 'shlwapi::PathIsRootW(w "$INSTDIR") i .r0'
-  ${If} $0 != 0
+  Call CheckFolderPath
+  ${If} $0 == 0
     Goto invalid
   ${EndIf}
   ClearErrors
@@ -171,6 +229,8 @@ Function InstallPageLeave
   ${NSD_GetText} $PathInput $INSTDIR
   ${NSD_GetState} $DesktopCheckbox $DesktopChoice
   ${NSD_GetState} $AutoStartCheckbox $AutoStartChoice
+  Call EnsureOwnFolder
+  ${NSD_SetText} $PathInput "$INSTDIR"
   Call ValidateDirectory
 FunctionEnd
 
@@ -196,6 +256,8 @@ FunctionEnd
 
 Section "安装"
   Call CheckClosed
+  ; 静默安装的 /D 路径同样遵循专用文件夹规则。
+  Call EnsureOwnFolder
   Call ValidateDirectory
   SetOutPath "$INSTDIR"
   SetOverwrite on
@@ -204,6 +266,10 @@ Section "安装"
   File "${PROJECT_DIR}\LICENSE"
   File "${PROJECT_DIR}\LICENSES.md"
   File "${PROJECT_DIR}\THIRD_PARTY_NOTICES.txt"
+  ; 诊断脚本已内嵌在程序里（islo.exe --collect-diagnostics），清掉测试版留下的单独诊断文件。
+  Delete "$INSTDIR\收集islo诊断.cmd"
+  Delete "$INSTDIR\scripts\collect-diagnostics.ps1"
+  RMDir "$INSTDIR\scripts"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   ${If} $DesktopChoice == 1
     CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\islo.exe"
@@ -217,6 +283,7 @@ Section "安装"
   ${EndIf}
   CreateShortcut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\islo.exe"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}设置.lnk" "$INSTDIR\islo.exe" "--settings"
+  CreateShortcut "$SMPROGRAMS\收集${APP_NAME}诊断.lnk" "$INSTDIR\islo.exe" "--collect-diagnostics" "$INSTDIR\islo.exe" 0
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "${APP_NAME}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${APP_VERSION}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "Publisher" "islo"
@@ -226,6 +293,16 @@ Section "安装"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
   WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINSTALL_KEY}" "NoRepair" 1
+  ; 登记岛仔自己文件的大小（KB），软件管家就不会去统计整个安装文件夹。
+  ${GetSize} "$INSTDIR" "/M=islo.exe /S=0K /G=0" $0 $1 $2
+  ${GetSize} "$INSTDIR" "/M=islo-cli.exe /S=0K /G=0" $3 $1 $2
+  IntOp $0 $0 + $3
+  ${GetSize} "$INSTDIR" "/M=Uninstall.exe /S=0K /G=0" $3 $1 $2
+  IntOp $0 $0 + $3
+  ${GetSize} "$INSTDIR" "/M=THIRD_PARTY_NOTICES.txt /S=0K /G=0" $3 $1 $2
+  IntOp $0 $0 + $3
+  IntOp $0 $0 + 8
+  WriteRegDWORD HKCU "${UNINSTALL_KEY}" "EstimatedSize" $0
   Delete "$INSTDIR\uninstall.ps1"
 SectionEnd
 
@@ -251,10 +328,14 @@ Section "Uninstall"
   Delete "$INSTDIR\LICENSES.md"
   Delete "$INSTDIR\THIRD_PARTY_NOTICES.txt"
   Delete "$INSTDIR\uninstall.ps1"
+  Delete "$INSTDIR\收集islo诊断.cmd"
+  Delete "$INSTDIR\scripts\collect-diagnostics.ps1"
+  RMDir "$INSTDIR\scripts"
   Delete "$INSTDIR\Uninstall.exe"
   Delete "$DESKTOP\${APP_NAME}.lnk"
   Delete "$SMPROGRAMS\${APP_NAME}.lnk"
   Delete "$SMPROGRAMS\${APP_NAME}设置.lnk"
+  Delete "$SMPROGRAMS\收集${APP_NAME}诊断.lnk"
   ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_ID}"
   ${If} $0 == '"$INSTDIR\islo.exe"'
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_ID}"
