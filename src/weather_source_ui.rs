@@ -259,13 +259,18 @@ impl App {
             ui.add_space(4.0);ui.separator();ui.add_space(3.0);
             ui.horizontal_wrapped(|ui|{
                 ui.label(RichText::new(locale.text("和风配置")).strong());
-                if ui.small_button(locale.text(if self.weather_source.config_open{"收起"}else{"展开"})).clicked(){self.weather_source.config_open=!self.weather_source.config_open;}
+                if ui.small_button(locale.text(if self.weather_source.config_open{locale.text("收起")}else{locale.text("展开")})).clicked(){self.weather_source.config_open=!self.weather_source.config_open;}
                 ui.hyperlink_to(locale.text("配置网站 ↗"),"https://console.qweather.com/");
                 if ui.link(locale.text("配置教程 ↗")).clicked(){self.weather_source.tutorial_open=true;}
             });
             if !self.weather_source.config_open {self.weather_source.connection_status(ui);}
             if self.weather_source.config_open {
-                ui.add_space(5.0);
+                ui.add_space(6.0);
+                qweather_step(ui,1,locale.text("创建项目和 API Key"));
+                step_body(ui,|ui|{
+                    settings_hint(ui,locale.text("在和风控制台创建项目和凭据：点上方「配置网站 ↗」打开控制台，照「配置教程 ↗」的 10 步图文操作。只需 GeoAPI 和天气预报两类权限。"));
+                });
+                qweather_step(ui,2,locale.text("填写并测试连接"));
                 ui.label(RichText::new("API Host").size(12.0));
                 let host=ui.add(egui::TextEdit::singleline(&mut self.weather_source.host).id_salt("qweather-host").hint_text(locale.text("专属域名.qweatherapi.com")).desired_width(f32::INFINITY));
                 ui.label(RichText::new("API Key").size(12.0));
@@ -285,12 +290,15 @@ impl App {
                         let removed=if slot.is_empty(){Ok(())}else{Client::delete(&slot)};
                         match removed {Err(e)=>self.weather_source.message=Some((e.text(),true)),Ok(())=>{
                             if let Some(c)=self.weather_source.client.take(){c.gate.store(false,Ordering::SeqCst);}
-                            self.weather_source.key.clear();self.weather_source.invalidate();self.weather_source.message=Some(("本机 Key 已清除。填写并测试新凭据后可重新启用。",false));
+                            self.weather_source.key.clear();self.weather_source.invalidate();self.weather_source.message=Some((locale.text("本机 Key 已清除。填写并测试新凭据后可重新启用。"),false));
                         }}
                     }
                 });
                 self.weather_source.connection_status(ui);
-                settings_hint(ui,locale.text("只启用 GeoAPI 和天气预报两类权限；Key 安全保存在 Windows 凭据管理器。"));
+                settings_hint(ui,locale.text("Key 安全保存在 Windows 凭据管理器。"));
+                ui.add_space(4.0);
+                qweather_step(ui,3,locale.text("选择城市并启用"));
+                step_body(ui,|ui|{settings_hint(ui,locale.text("在下方「和风城市」搜索并添加城市，然后点「保存并启用」。和风暂不支持自动定位。"));});
                 egui::CollapsingHeader::new(locale.text("免费额度详情")).id_salt("qweather-free-details").show(ui,|ui|{
                     ui.label(locale.text("每自然月前 50,000 次免费"));
                     settings_hint(ui,locale.text("同一和风开发者账号合计，GeoAPI 与天气预报共享，并非每个 Key 各享一份。超额继续按量计费，不会自动停止。"));
@@ -315,7 +323,7 @@ impl App {
             egui::ComboBox::from_id_salt("qweather-province").width(108.0).height(230.0)
                 .selected_text(if self.weather_source.province.is_empty(){locale.text("不限省份")}else{locale.text(&self.weather_source.province)}).show_ui(ui,|ui|{
                     ui.selectable_value(&mut self.weather_source.province,String::new(),locale.text("不限省份"));
-                    for province in ["北京","天津","河北","山西","内蒙古","辽宁","吉林","黑龙江","上海","江苏","浙江","安徽","福建","江西","山东","河南","湖北","湖南","广东","广西","海南","重庆","四川","贵州","云南","西藏","陕西","甘肃","青海","宁夏","新疆","香港","澳门","台湾"]{
+                    for province in [locale.text("北京"),locale.text("天津"),locale.text("河北"),locale.text("山西"),locale.text("内蒙古"),locale.text("辽宁"),locale.text("吉林"),locale.text("黑龙江"),locale.text("上海"),locale.text("江苏"),locale.text("浙江"),locale.text("安徽"),locale.text("福建"),locale.text("江西"),locale.text("山东"),locale.text("河南"),locale.text("湖北"),locale.text("湖南"),locale.text("广东"),locale.text("广西"),locale.text("海南"),locale.text("重庆"),locale.text("四川"),locale.text("贵州"),locale.text("云南"),locale.text("西藏"),locale.text("陕西"),locale.text("甘肃"),locale.text("青海"),locale.text("宁夏"),locale.text("新疆"),locale.text("香港"),locale.text("澳门"),locale.text("台湾")]{
                         ui.selectable_value(&mut self.weather_source.province,province.to_string(),locale.text(province));
                     }
                 });
@@ -410,10 +418,21 @@ impl App {
             }
         });
         if active {
+            // 额度：本机用量条在上，账号免费额度说明在下；本机上限只在配置里的「免费额度详情」说明。
+            settings_label(ui,locale.text("额度"));
+            settings_card(ui,|ui|{
+                let used=qweather::usage();
+                ui.horizontal(|ui|{
+                    ui.label(RichText::new(locale.text("本机本月已请求")).size(13.0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{ui.label(RichText::new(locale.format("{0} 次",&[("0",used.to_string())])).size(13.0).strong());});
+                });
+                ui.add(egui::ProgressBar::new((used as f32/qweather::LIMIT as f32).clamp(0.0,1.0)).desired_height(6.0).fill(Color32::from_rgb(48,184,92)));
+                settings_hint(ui,locale.text("仅更新当前城市；搜索、测试、刷新和失败尝试都计入本机用量。"));
+                settings_hint(ui,locale.text("和风账号每月免费额度 50,000 次，多设备与所有 Key 共享；超额继续按量计费，不会自动停止。"));
+            });
+            settings_label(ui,locale.text("更新与数据"));
             settings_card(ui,|ui|{
                 ui.hyperlink_to(locale.text("天气数据来自 QWeather"),"https://www.qweather.com/");
-                settings_hint(ui,&locale.format("本机本月已请求 {0} 次 · 仅更新当前城市",&[("0",qweather::usage().to_string())]));
-                settings_hint(ui,locale.text("和风账号每月免费额度 50,000 次，多设备与所有 Key 共享；超额可能收费。"));
                 let(a,b)=self.weather_source.runtime.stamps();
                 settings_hint(ui,&locale.format("实况更新：{0} · 预报更新：{1}",&[("0",updated_at(a,locale)),("1",updated_at(b,locale))]));
                 settings_hint(ui,locale.text("实况约 60 分钟、预报约 6 小时刷新。降水概率为日夜较高值。"));
@@ -518,4 +537,20 @@ mod tests {
         assert!(state.search_due(6.5));state.search();state.province="浙江".into();assert!(!state.search_due(7.0));assert!(state.search_due(7.5));
         state.poll(false);assert!(!state.search_due(100.0),"关闭模块后不能自动搜索");
     }
+}
+
+/// 和风配置的步骤标题：绿色圆形序号 + 加粗标题。
+fn qweather_step(ui:&mut egui::Ui,n:u8,title:&str){
+    ui.add_space(4.0);
+    ui.horizontal(|ui|{
+        let (rect,_)=ui.allocate_exact_size(egui::vec2(24.0,24.0),egui::Sense::hover());
+        ui.painter().circle_filled(rect.center(),12.0,color(ui.ctx(),Color32::from_rgb(28,51,36),Color32::from_rgb(227,244,232)));
+        ui.painter().text(rect.center(),egui::Align2::CENTER_CENTER,n.to_string(),egui::FontId::proportional(12.5),color(ui.ctx(),Color32::from_rgb(127,214,155),Color32::from_rgb(29,122,60)));
+        ui.add_space(4.0);
+        ui.label(RichText::new(title).size(13.5).strong());
+    });
+}
+/// 步骤正文：与标题文字对齐缩进。
+fn step_body(ui:&mut egui::Ui,add:impl FnOnce(&mut egui::Ui)){
+    ui.horizontal(|ui|{ui.add_space(32.0);ui.vertical(add);});
 }

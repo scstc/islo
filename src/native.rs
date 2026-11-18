@@ -30,6 +30,41 @@ const WS_EX_NOREDIRECTIONBITMAP: isize = 0x0020_0000;
 static HIT: OnceLock<Mutex<Vec<(i32, i32, i32, i32)>>> = OnceLock::new();
 /// 前台窗口切到别的进程时置位，由主线程消费。
 static FG_CHANGED: AtomicBool = AtomicBool::new(false);
+// 前台事件在安装钩子的 UI 线程上派发。
+thread_local! {
+    static FG_CONTEXT: std::cell::RefCell<Option<eframe::egui::Context>> = const { std::cell::RefCell::new(None) };
+    static PAGE_WHEEL_TARGET: std::cell::Cell<Option<(HWND,RECT)>> = const { std::cell::Cell::new(None) };
+}
+
+// 仅在切页把鼠标留在岛外时接续垂直滚轮。点击、横滚和移出都会立即交还下层窗口。
+unsafe extern "system" fn on_page_wheel(code:i32,wp:WPARAM,lp:LPARAM)->LRESULT {
+    if code==HC_ACTION as i32 {
+        use windows::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL,VK_MENU,VK_SHIFT};
+        let msg=wp.0 as u32;
+        let modified=msg==WM_MOUSEWHEEL && [VK_CONTROL,VK_MENU,VK_SHIFT].iter().any(|key|GetAsyncKeyState(key.0 as i32)<0);
+        if route_page_wheel(msg,&*(lp.0 as *const MSLLHOOKSTRUCT),modified) {return LRESULT(1);}
+    }
+    CallNextHookEx(None,code,wp,lp)
+}
+
+unsafe fn route_page_wheel(msg:u32,event:&MSLLHOOKSTRUCT,modified:bool)->bool {
+    let Some((hwnd,area))=PAGE_WHEEL_TARGET.get() else {return false};
+    let p=event.pt;
+    let inside=p.x>=area.left && p.x<area.right && p.y>=area.top && p.y<area.bottom;
+    if inside && msg==WM_MOUSEMOVE {return false;}
+    if inside && msg==WM_MOUSEWHEEL {
+        // 新页边缘与续滚范围略有重叠，落在可操作区域内的滚轮仍走原生分发。
+        let mut window=RECT::default();
+        if GetWindowRect(hwnd,&mut window).is_ok() && inside_hit(p.x-window.left,p.y-window.top) {return false;}
+        if !modified {
+            let pos=LPARAM(((p.x as u16 as u32) | ((p.y as u16 as u32)<<16)) as isize);
+            if PostMessageW(hwnd,WM_MOUSEWHEEL,WPARAM((event.mouseData & 0xffff0000) as usize),pos).is_ok() {return true;}
+        }
+    }
+    PAGE_WHEEL_TARGET.set(None);
+    FG_CONTEXT.with_borrow(|ctx|{if let Some(ctx)=ctx {ctx.request_repaint_of(eframe::egui::ViewportId::ROOT);}});
+    false
+}
 
 // `WS_EX_NOREDIRECTIONBITMAP` 只能在 CreateWindowEx 时设置（运行时 SetWindowLongPtrW
 // 会回 ERROR_INVALID_PARAMETER），本项目用 GL 合成窗口，加上这一位后画面上什么都
@@ -78,6 +113,7 @@ impl DragCapture {
 fn watch_drag(hwnd:HWND,ctx:eframe::egui::Context){
     let raw=hwnd.0 as isize;
     let mut was_down=false;
+    let mut last_hover=None;
     let _=std::thread::Builder::new().name("islo-drag-watch".into()).spawn(move||loop{
         std::thread::sleep(std::time::Duration::from_millis(80));
         unsafe {
@@ -87,9 +123,18 @@ fn watch_drag(hwnd:HWND,ctx:eframe::egui::Context){
             // 松开后补一帧，让拖放状态及时复位；否则静止时一秒才画一帧，连续点击会沿用上次的按下位置。
             if was_down && !down {ctx.request_repaint();}
             was_down=down;
-            if !down {continue;}
+            let passive=GetWindowLongPtrW(hwnd,GWL_EXSTYLE) & WS_EX_TRANSPARENT.0 as isize != 0;
+            if !down && !passive {last_hover=None;continue;}
             let mut cursor=POINT::default();let mut rect=RECT::default();
             if GetCursorPos(&mut cursor).is_err() || GetWindowRect(hwnd,&mut rect).is_err(){continue;}
+            if !down {
+                // 细条点穿后收不到鼠标移入事件，在它的可见区域内移动才唤醒绘制。
+                let pos=(cursor.x-rect.left,cursor.y-rect.top);
+                if last_hover.replace(pos)==Some(pos){continue;}
+                let mut bounds=RECT::default();
+                windows::Win32::Graphics::Gdi::GetWindowRgnBox(hwnd,&mut bounds);
+                if pos.0<bounds.left || pos.0>=bounds.right || pos.1<bounds.top || pos.1>=bounds.bottom {continue;}
+            }
             if cursor.x>=rect.left && cursor.x<rect.right && cursor.y>=rect.top && cursor.y<rect.bottom {ctx.request_repaint();}
         }
     });
@@ -260,13 +305,12 @@ unsafe extern "system" fn on_foreground(
     let _ = GetWindowThreadProcessId(hwnd, Some(&mut pid));
     // 自己（含托盘窗口）拿到前台不算「切走」
     if pid != 0 && pid != GetCurrentProcessId() {
+        PAGE_WHEEL_TARGET.set(None);
         FG_CHANGED.store(true, Ordering::Relaxed);
+        FG_CONTEXT.with_borrow(|context| {
+            if let Some(ctx)=context {ctx.request_repaint_of(eframe::egui::ViewportId::ROOT);}
+        });
     }
-}
-
-/// 主线程每帧调用一次：这一帧是否发生了「前台切到别的程序」。
-pub fn take_foreground_change() -> bool {
-    FG_CHANGED.swap(false, Ordering::Relaxed)
 }
 
 /// winit 会在显示/改属性时重写窗口样式，所以每帧按需兜一次底。
@@ -380,6 +424,7 @@ pub struct Window {
     region: (i32, i32, i32, i32),
     expanded: bool,
     hook: HWINEVENTHOOK,
+    page_wheel_hook: Option<HHOOK>,
     browser_state: (Option<bool>,PollClock),
     drag_capture: DragCapture,
     /// 当前生效的贴合轮廓（物理像素键）、毛玻璃的合成模糊层与其状态。
@@ -425,6 +470,36 @@ impl ShapeAlpha {
 impl Window {
     pub fn hwnd(&self)->HWND {self.hwnd}
 
+    pub fn page_scroll_cancelled(&self)->bool {
+        self.page_wheel_hook.is_some() && PAGE_WHEEL_TARGET.get().is_none()
+    }
+
+    pub fn set_page_scroll_area(&mut self,area:Option<eframe::egui::Rect>,ppp:f32) {
+        unsafe {
+            let mut window=RECT::default();
+            let area=area.filter(|_|GetWindowRect(self.hwnd,&mut window).is_ok());
+            if let Some(r)=area {
+                let x=|v:f32|window.left+(v*ppp).round() as i32;
+                let y=|v:f32|window.top+(v*ppp).round() as i32;
+                if self.page_wheel_hook.is_none() {
+                    use windows::Win32::{Foundation::HINSTANCE,System::LibraryLoader::GetModuleHandleW};
+                    self.page_wheel_hook=GetModuleHandleW(None).ok().and_then(|m|
+                        SetWindowsHookExW(WH_MOUSE_LL,Some(on_page_wheel),HINSTANCE(m.0),0).ok());
+                }
+                PAGE_WHEEL_TARGET.set(Some((self.hwnd,RECT{left:x(r.left()),top:y(r.top()),right:x(r.right()),bottom:y(r.bottom())})));
+            } else if let Some(hook)=self.page_wheel_hook.take() {
+                PAGE_WHEEL_TARGET.set(None);
+                let _=UnhookWindowsHookEx(hook);
+            }
+        }
+    }
+
+    pub fn holding_through_strip(&self)->bool {
+        use windows::Win32::UI::Input::KeyboardAndMouse::VK_MBUTTON;
+        unsafe {GetWindowLongPtrW(self.hwnd,GWL_EXSTYLE) & WS_EX_TRANSPARENT.0 as isize != 0
+            && [VK_LBUTTON,VK_RBUTTON,VK_MBUTTON].iter().any(|key|GetAsyncKeyState(key.0 as i32)<0)}
+    }
+
     /// 顶栏重新置顶后恢复岛体层级；没有遮挡时不修改窗口顺序，也不激活窗口。
     pub fn keep_above_top_bar(&mut self,bounds:crate::display_layout::Bounds) {
         let display=match &self.layering {Layering::Active(layered)=>layered.display(),_=>self.hwnd};
@@ -451,6 +526,7 @@ impl Window {
                 WINEVENT_OUTOFCONTEXT,
             )
         };
+        if !hook.is_invalid(){FG_CONTEXT.set(Some(cc.egui_ctx.clone()));}
         // 区域用哨兵值：首帧（包括启动即隐藏的空区域）也必须真正调用 SetWindowRgn，
         // 否则整块透明画布会挡住下层程序的点击。
         let backend=cc.wgpu_render_state.as_ref().map(|state|state.adapter.get_info().backend);
@@ -462,7 +538,7 @@ impl Window {
         let opaque_surface=surface_needs_outline_clip(backend,&vendor,&renderer) || outline_test().is_some();
         if opaque_surface{glass_diagnostic(&format!("渲染兼容：{vendor} {renderer} {backend:?}，不直接信任系统透明合成，首帧前先按轮廓裁剪"));}
         watch_drag(hwnd,cc.egui_ctx.clone());
-        Some(Self { hwnd, layering:Layering::Pending, region: (i32::MIN, 0, 0, 0), expanded: false, hook, browser_state:(None,PollClock::default()), drag_capture:DragCapture::default(), glass:None, backdrop:None, blur:false, blur_unavailable:false, opaque_surface, outline:ShapeAlpha::default() })
+        Some(Self { hwnd, layering:Layering::Pending, region: (i32::MIN, 0, 0, 0), expanded: false, hook, page_wheel_hook:None, browser_state:(None,PollClock::default()), drag_capture:DragCapture::default(), glass:None, backdrop:None, blur:false, blur_unavailable:false, opaque_surface, outline:ShapeAlpha::default() })
     }
 
     /// 使用目标屏幕的物理坐标定位，并在缩放、岛体大小、水平位置或屏幕连接变化后重新校正。
@@ -543,6 +619,12 @@ impl Window {
         Some(eframe::egui::pos2(r.left as f32/scale,r.top as f32/scale))
     }
 
+    pub fn take_foreground_change(&mut self)->bool {
+        let changed=FG_CHANGED.swap(false,Ordering::Relaxed);
+        if changed {self.browser_state.1=PollClock::default();}
+        changed
+    }
+
     pub fn browser_at_top(&mut self,settings:&crate::model::Settings)->Option<bool> {
         if self.browser_state.1.ready(Duration::from_millis(100)) {
             self.browser_state=(crate::system::browser_at_top(self.hwnd,settings),PollClock::now());
@@ -579,6 +661,8 @@ impl Window {
             px(hit_rect.1 + hit_rect.3),
         );
         let mut hits=vec![h];
+        // 仍有画面但没有点击目标时，让系统直接把输入分派给下层进程。
+        let passive=r.2>r.0 && r.3>r.1 && h.2==h.0 && notice_hit.is_none() && !capture;
         if let Some((x,y,w,h))=notice_hit {hits.push((px(x),px(y),px(x+w),px(y+h)));}
         *hit().lock().unwrap_or_else(|e| e.into_inner()) = hits;
         // 毛玻璃：合成引擎的模糊块贴合岛体轮廓，窗口区域仍用矩形（含阴影与拖放感应区）。
@@ -586,7 +670,7 @@ impl Window {
         // 分层窗口显示的是带真实透明通道的画面时，系统模糊同样能透出来（模糊底板紧贴在岛仔窗口下方，
         // 分层显示窗口在上方）；只有轮廓裁剪或按轮廓补 alpha（内部不透明）时才关掉模糊。
         let layered_alpha=matches!(self.layering,Layering::Active(_)) && !self.outline.active;
-        match glass.filter(|g|!g.is_empty() && !self.blur_unavailable && (!self.opaque_surface || layered_alpha) && compositor_blur_allowed()) {
+        match glass.filter(|g|!passive && !g.is_empty() && !self.blur_unavailable && (!self.opaque_surface || layered_alpha) && compositor_blur_allowed()) {
             Some(shapes) => {
                 if self.backdrop.is_none() {
                     match crate::composition::Backdrop::new() {
@@ -656,16 +740,32 @@ impl Window {
         let raise=expanded && !self.expanded;
         unsafe { apply_style(self.hwnd, editing, raise) };
         if let Layering::Active(layered)=&mut self.layering {layered.sync(self.hwnd,raise);}
+        unsafe {
+            let ex=GetWindowLongPtrW(self.hwnd,GWL_EXSTYLE);
+            let transparent=WS_EX_TRANSPARENT.0 as isize;
+            let layered=WS_EX_LAYERED.0 as isize;
+            if passive && (ex & (transparent|layered)) != (transparent|layered) {
+                SetWindowLongPtrW(self.hwnd,GWL_EXSTYLE,ex|transparent|layered);
+                if !matches!(self.layering,Layering::Active(_)) {
+                    let _=SetLayeredWindowAttributes(self.hwnd,windows::Win32::Foundation::COLORREF(0),255,LWA_ALPHA);
+                }
+            } else if !passive && ex & transparent != 0 {
+                let remove=if matches!(self.layering,Layering::Active(_)){transparent}else{transparent|layered};
+                SetWindowLongPtrW(self.hwnd,GWL_EXSTYLE,ex & !remove);
+            }
+        }
         self.expanded = expanded;
     }
 }
 
 impl Drop for Window {
     fn drop(&mut self) {
+        self.set_page_scroll_area(None,1.0);
         unsafe {
             let _ = RemoveWindowSubclass(self.hwnd, Some(subclass), SUBCLASS_ID);
             if !self.hook.is_invalid() {
                 let _ = UnhookWinEvent(self.hook);
+                FG_CONTEXT.set(None);
             }
         }
     }
@@ -675,6 +775,33 @@ impl Drop for Window {
 mod tests {
     use super::*;
     static NATIVE_STATE_LOCK:Mutex<()>=Mutex::new(());
+
+    #[test]
+    fn page_wheel_forwards_only_until_click_or_departure(){unsafe{
+        let _guard=NATIVE_STATE_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+        let hwnd=CreateWindowExW(WS_EX_TOOLWINDOW,windows::core::w!("STATIC"),None,WS_POPUP,0,0,1,1,None,None,None,None).unwrap();
+        let target=Some((hwnd,RECT{left:-101,top:50,right:-89,bottom:80}));
+        let mut window=RECT::default();
+        GetWindowRect(hwnd,&mut window).unwrap();
+        let panel=(-110-window.left,40-window.top,-80-window.left,58-window.top);
+        let saved=std::mem::replace(&mut *hit().lock().unwrap(),vec![panel]);
+        let event=MSLLHOOKSTRUCT{pt:POINT{x:-95,y:65},mouseData:(-30i16 as u16 as u32)<<16,..Default::default()};
+        for (cancel,modified) in [(WM_LBUTTONDOWN,false),(WM_MOUSEHWHEEL,false),(WM_MOUSEMOVE,false),(WM_MOUSEWHEEL,true)] {
+            PAGE_WHEEL_TARGET.set(target);
+            let overlap=MSLLHOOKSTRUCT{pt:POINT{x:-95,y:55},..event};
+            assert!(!route_page_wheel(WM_MOUSEWHEEL,&overlap,false),"移入重叠处时滚轮由岛内原生控件接收");
+            assert!(route_page_wheel(WM_MOUSEWHEEL,&event,false));
+            let mut message=MSG::default();
+            assert!(PeekMessageW(&mut message,hwnd,WM_MOUSEWHEEL,WM_MOUSEWHEEL,PM_REMOVE).as_bool());
+            assert_eq!((message.wParam.0>>16) as i16,-30);
+            let point=if cancel==WM_MOUSEMOVE {POINT{x:-88,y:65}}else{event.pt};
+            assert!(!route_page_wheel(cancel,&MSLLHOOKSTRUCT{pt:point,..event},modified));
+            assert!(!route_page_wheel(WM_MOUSEWHEEL,&event,false));
+            assert!(!PeekMessageW(&mut message,hwnd,WM_MOUSEWHEEL,WM_MOUSEWHEEL,PM_REMOVE).as_bool());
+        }
+        *hit().lock().unwrap()=saved;
+        DestroyWindow(hwnd).unwrap();
+    }}
 
     #[test]
     fn opaque_surface_clips_black_background_even_without_system_blur(){
@@ -690,7 +817,7 @@ mod tests {
             let hwnd=CreateWindowExW(WS_EX_TOOLWINDOW,windows::core::w!("STATIC"),windows::core::w!(""),WS_POPUP,-10000,-10000,px(400.0),px(200.0),None,None,None,None).unwrap();
             let saved=hit().lock().unwrap_or_else(|e|e.into_inner()).clone();
             {
-                let mut native=Window{hwnd,layering:Layering::Pending,region:(0,0,0,0),expanded:false,hook:HWINEVENTHOOK::default(),browser_state:(None,PollClock::now()),drag_capture:DragCapture::default(),glass:None,backdrop:None,blur:false,blur_unavailable,opaque_surface:surface_needs_outline_clip(backend,vendor,renderer),outline:ShapeAlpha::default()};
+                let mut native=Window{hwnd,layering:Layering::Pending,region:(0,0,0,0),expanded:false,hook:HWINEVENTHOOK::default(),page_wheel_hook:None,browser_state:(None,PollClock::now()),drag_capture:DragCapture::default(),glass:None,backdrop:None,blur:false,blur_unavailable,opaque_surface:surface_needs_outline_clip(backend,vendor,renderer),outline:ShapeAlpha::default()};
                 let shapes=[crate::app::GlassShape::Round(eframe::egui::Rect::from_min_max(eframe::egui::pos2(80.0,60.0),eframe::egui::pos2(320.0,160.0)),25.0)];
                 native.update((0.0,0.0,400.0,200.0),(80.0,60.0,240.0,100.0),None,None,Some(&shapes),ppp,false,false);
                 let region=CreateRectRgn(0,0,0,0);
@@ -722,7 +849,7 @@ mod tests {
             let hwnd=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE,windows::core::w!("BUTTON"),windows::core::w!(""),WS_POPUP|WS_VISIBLE,-10000,-10000,w as i32,h as i32,None,None,None,None).unwrap();
             let saved=hit().lock().unwrap_or_else(|e|e.into_inner()).clone();
             {
-                let mut native=Window{hwnd,layering:Layering::Pending,region:(0,0,0,0),expanded:false,hook:HWINEVENTHOOK::default(),browser_state:(None,PollClock::now()),drag_capture:DragCapture::default(),glass:None,backdrop:None,blur:false,blur_unavailable:false,opaque_surface:true,outline:ShapeAlpha::default()};
+                let mut native=Window{hwnd,layering:Layering::Pending,region:(0,0,0,0),expanded:false,hook:HWINEVENTHOOK::default(),page_wheel_hook:None,browser_state:(None,PollClock::now()),drag_capture:DragCapture::default(),glass:None,backdrop:None,blur:false,blur_unavailable:false,opaque_surface:true,outline:ShapeAlpha::default()};
                 let island=crate::shape::outline(Rect::from_min_max(pos2(80.0,0.0),pos2(320.0,60.0)),12.0,10.0,20.0);
                 let shapes=[GlassShape::Outline(island)];
                 // 读回的画面：岛体黑色、画布也是黑色，alpha 全部 255——和 AMD OpenGL 读回的一样。
@@ -829,7 +956,7 @@ mod tests {
             let create=||TestWindow(CreateWindowExW(WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,windows::core::w!("STATIC"),windows::core::w!(""),WS_POPUP|WS_VISIBLE,-10000,-10000,416,140,None,None,None,None).unwrap());
             for layered in [false,true] {
                 let island=create();let cover=create();
-                let mut native=Window{hwnd:island.0,layering:Layering::Pending,region:(0,0,0,0),expanded:false,hook:HWINEVENTHOOK::default(),browser_state:(None,PollClock::now()),drag_capture:DragCapture::default(),glass:None,backdrop:None,blur:false,blur_unavailable:false,opaque_surface:false,outline:ShapeAlpha::default()};
+                let mut native=Window{hwnd:island.0,layering:Layering::Pending,region:(0,0,0,0),expanded:false,hook:HWINEVENTHOOK::default(),page_wheel_hook:None,browser_state:(None,PollClock::now()),drag_capture:DragCapture::default(),glass:None,backdrop:None,blur:false,blur_unavailable:false,opaque_surface:false,outline:ShapeAlpha::default()};
                 if layered {
                     let mut display=crate::layered::Layered::new().unwrap();
                     display.present(island.0,[416,140],&vec![0;416*140*4]).unwrap();
@@ -878,7 +1005,7 @@ mod tests {
             assert!(above(cover.0,island.0),"先复现其他窗口盖住岛体");
             let foreground=GetForegroundWindow();
             let saved=hit().lock().unwrap_or_else(|e|e.into_inner()).clone();
-            let mut native=Window{hwnd:island.0,layering:Layering::Pending,region:(0,0,0,0),expanded:false,hook:HWINEVENTHOOK::default(),browser_state:(None,PollClock::now()),drag_capture:DragCapture::default(),glass:None,backdrop:None,blur:false,blur_unavailable:false,opaque_surface:false,outline:ShapeAlpha::default()};
+            let mut native=Window{hwnd:island.0,layering:Layering::Pending,region:(0,0,0,0),expanded:false,hook:HWINEVENTHOOK::default(),page_wheel_hook:None,browser_state:(None,PollClock::now()),drag_capture:DragCapture::default(),glass:None,backdrop:None,blur:false,blur_unavailable:false,opaque_surface:false,outline:ShapeAlpha::default()};
             let update=|native:&mut Window,expanded|native.update((0.0,0.0,416.0,140.0),(0.0,0.0,416.0,140.0),None,None,None,1.0,false,expanded);
             update(&mut native,true);
             assert!(above(island.0,cover.0),"展开时必须重新抬高实际窗口层级，不能只检查置顶标记");
@@ -924,6 +1051,31 @@ mod tests {
             assert_eq!(SendMessageW(hwnd,WM_NCHITTEST,WPARAM(0),point(500,80)).0,HTTRANSPARENT as isize,"感应区中的普通点击仍须穿透");
             assert_eq!(SendMessageW(hwnd,WM_NCHITTEST,WPARAM(0),point(320,15)).0,HTCLIENT as isize,"岛体本身仍可交互");
             let _=DestroyWindow(hwnd);*hit().lock().unwrap_or_else(|e|e.into_inner())=saved;
+        }
+    }
+
+    #[test]
+    fn passive_strip_yields_native_hits_and_expanded_panel_takes_them_back(){
+        let _guard=NATIVE_STATE_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+        unsafe {
+            let create=||CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE|WS_EX_TOPMOST,windows::core::w!("BUTTON"),windows::core::w!(""),WS_POPUP|WS_VISIBLE,80,80,80,32,None,None,None,None).unwrap();
+            let tab=create();
+            let island=create();
+            let mut native=Window{hwnd:island,layering:Layering::Pending,region:(0,0,0,0),expanded:false,hook:HWINEVENTHOOK::default(),page_wheel_hook:None,browser_state:(None,PollClock::now()),drag_capture:DragCapture::default(),glass:None,backdrop:None,blur:false,blur_unavailable:false,opaque_surface:false,outline:ShapeAlpha::default()};
+            let saved=hit().lock().unwrap_or_else(|e|e.into_inner()).clone();
+            let find=|x,y|std::thread::spawn(move||WindowFromPoint(POINT{x,y}).0 as usize).join().unwrap();
+            let region=(0.0,0.0,80.0,32.0);
+            native.update(region,(0.0,0.0,0.0,0.0),None,None,None,1.0,false,false);
+            let center=find(120,84);
+            let margin=find(130,96);
+            native.update(region,region,None,None,None,1.0,false,true);
+            let panel=find(120,84);
+            drop(native);
+            let _=DestroyWindow(island);
+            let _=DestroyWindow(tab);
+            *hit().lock().unwrap_or_else(|e|e.into_inner())=saved;
+            assert_eq!((center,margin),(tab.0 as usize,tab.0 as usize),"细条中心和透明留白都应命中下层窗口");
+            assert_eq!(panel,island.0 as usize,"展开后面板应恢复命中");
         }
     }
 

@@ -1114,19 +1114,27 @@ impl App {
         let ctx=ui.ctx().clone();
         let accent=color(&ctx,Color32::from_rgb(96,164,255),Color32::from_rgb(34,108,220));
         ui.add_space(4.0);
+        // 当前天气放在最上面；所选来源还没应用时不显示，避免把默认源的数据混进和风草稿。
+        let applied=self.weather_source.displayed==self.weather_source.selected;
+        if applied {
+            self.weather_settings_hero(ui);
+            ui.add_space(5.0);
+            ui.horizontal_wrapped(|ui|{
+                ui.label(egui::RichText::new(locale.text("天气数据来自")).size(11.5).color(ui.visuals().weak_text_color()));
+                let source=self.weather_source.displayed;ui.hyperlink_to(locale.text(source.name()),source.url());
+                ui.label(egui::RichText::new(locale.text("· 离线时保留上次天气，温度转灰提示")).size(11.5).color(ui.visuals().weak_text_color()));
+            });
+            ui.add_space(8.0);
+        }
+        let selected_before=self.weather_source.selected;
         self.weather_source_settings(ui);
+        // 本帧刚切换来源：上面已画的天气属于旧来源，丢弃这一帧重画，避免草稿里闪现默认源数据。
+        if self.weather_source.selected!=selected_before && applied {ui.ctx().request_discard("天气来源已切换");}
         ui.add_space(12.0);
         if self.weather_source.selected==crate::weather_source_ui::Provider::Qweather {
-            if self.weather_source.displayed==self.weather_source.selected {self.weather_settings_hero(ui);ui.add_space(8.0);}
             self.qweather_city_settings(ui);return;
         }
-        if self.weather_source.displayed!=self.weather_source.selected {return;}
-        self.weather_settings_hero(ui);
-        ui.add_space(5.0);
-        ui.horizontal_wrapped(|ui|{
-            ui.label(egui::RichText::new(locale.text("天气数据来自")).size(11.5).color(ui.visuals().weak_text_color()));
-            let source=self.weather_source.displayed;ui.hyperlink_to(locale.text(source.name()),source.url());
-        });
+        if !applied {return;}
         if let Some(error)=self.weather.error.clone() {
             ui.add_space(6.0);
             egui::Frame::new().fill(color(&ctx,Color32::from_rgb(64,44,24),Color32::from_rgb(255,240,224))).corner_radius(10.0)

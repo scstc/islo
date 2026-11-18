@@ -9,7 +9,7 @@ islo 支持个人 Microsoft 账号的 Outlook / Hotmail 邮箱，使用原有 IM
 1. 在 [Microsoft Entra 应用注册](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app)中创建桌面应用，支持个人 Microsoft 账号（也可注册支持组织和个人账号的应用，但当前 islo 仅使用个人账号入口）。
 2. 添加「移动和桌面应用程序」平台，登记重定向 URI **`http://localhost/oauth/callback`**。islo 绑定随机本机端口，微软对 localhost 重定向忽略端口，路径必须一致。不要登记为 Web／SPA，不需要 client secret。
 3. 使用委托权限 `https://outlook.office.com/IMAP.AccessAsUser.All` 和 `offline_access`。不申请 SMTP.Send、应用级邮箱权限或租户管理权限。IMAP 的该权限由微软定义为完整 IMAP 邮件访问，islo 的接入仅沿用现有收信逻辑。
-4. 为正式发行构建设置公开变量 `ISLO_OUTLOOK_CLIENT_ID`；或在开发版「设置 → 邮件 → Outlook → Microsoft 应用配置（开发者）」中填写 Client ID。CLI 可使用 `islo-cli settings set outlook_client_id CLIENT_ID`。空／无效 ID 返回普通参数要求，不弹密码框。
+4. 为正式发行构建设置公开变量 `ISLO_OUTLOOK_CLIENT_ID`，或在开发版「设置 → 邮箱 → 添加邮箱 → Outlook → Microsoft 应用配置（开发者）」中填写 Client ID。CLI 可使用 `islo-cli settings set outlook_client_id CLIENT_ID`。ID 为空或无效时，CLI 会返回配置要求。
 
 相关协议：[授权码 + PKCE](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow)、[localhost 重定向](https://learn.microsoft.com/en-us/entra/identity-platform/reply-url#localhost-exceptions)、[IMAP OAuth2](https://learn.microsoft.com/en-us/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth)。
 

@@ -7,6 +7,7 @@
 
 pub mod display_layout;
 pub mod diagnostics_tool;
+pub mod rtl_text;
 mod mail_privacy;
 pub mod poll_clock;
 pub mod resources;
