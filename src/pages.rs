@@ -138,7 +138,7 @@ impl App {
         let (volume_button,volume_card)=btn(367.0,26.0,"m-volume");
         let (volume,muted)=self.music_volume_ui.unwrap_or((0,false));
         paint::speaker(&volume_card,367.0,y,muted,if self.music_volume_ui.is_some(){ic}else{theme::GRAY});
-        let hint=if self.music_volume_ui.is_some(){format!("音乐应用音量 {volume}%{} · 点击展开 · 滚轮调节",if muted{"（已静音）"}else{""})}else{"暂无可调节的音乐音频会话".into()};
+        let hint=if self.music_volume_ui.is_some(){locale.format("音乐应用音量 {0}%{1} · 点击展开 · 滚轮调节",&[("0",volume.to_string()),("1",if muted{locale.text("（已静音）").into()}else{String::new()})])}else{locale.text("暂无可调节的音乐音频会话").into()};
         let volume_button=volume_button.on_hover_text(hint);
         if c.live && has && self.music_volume_ui.is_some() {
             if volume_button.clicked(){self.music_volume_open=!self.music_volume_open;}
@@ -183,6 +183,7 @@ impl App {
     }
 
     pub(crate) fn draw_music_volume(&mut self,c:&Card,cmds:&mut Vec<Cmd>){
+        let locale=self.settings.locale();
         let ctx=c.ui.ctx();
         let bounds=MUSIC_VOLUME_RECT;
         let panel=c.rect(bounds.min.x,bounds.min.y,bounds.width(),bounds.height());
@@ -209,7 +210,9 @@ impl App {
             let delta=ctx.input(|i|i.raw_scroll_delta.y);
             if delta.abs()>0.5{command=Some(Transport::SetVolume((volume as f32+delta/120.0*4.0).round().clamp(0.0,100.0) as u32));}
         }
-        let mute=popup.hit(353.0,82.0,28.0,20.0,"m-volume-mute").on_hover_text(if muted{"恢复音乐音量"}else{"静音音乐，保留当前音量"});
+        let mute_w=if locale.is_english(){36.0}else{28.0};
+        let mute_x=367.0-mute_w/2.0;
+        let mute=popup.hit(mute_x,82.0,mute_w,20.0,"m-volume-mute").on_hover_text(if muted{locale.text("恢复音乐音量")}else{locale.text("静音音乐，保留当前音量")});
         let (hover,press)=popup.hover_t(&mute);
         if popup.live && mute.clicked(){command=Some(Transport::SetMute(!muted));}
         if let Some(command)=command {self.change_music_volume(command,cmds);}
@@ -220,8 +223,9 @@ impl App {
         let head=75.0-43.0*volume as f32/100.0;
         if volume>0 {popup.fill(364.5,head,5.0,(75.0-head).max(2.5),2.5,ink);}
         popup.circle(367.0,head,if track.dragged(){5.5}else{4.5},ink);
-        popup.fill(353.0,82.0,28.0,20.0,6.0,paint::mix(theme::BTN,theme::BTN_HOVER,if muted{1.0}else{hover}));
-        popup.scaled(367.0,92.0,1.0-0.06*press).centered_text(367.0,92.0,if muted{"恢复"}else{"静音"},9.5,W::Semibold,theme::WHITE,H::Center);
+        popup.fill(mute_x,82.0,mute_w,20.0,6.0,paint::mix(theme::BTN,theme::BTN_HOVER,if muted{1.0}else{hover}));
+        let label=if muted&&locale.is_english(){"Unmute"}else{locale.text(if muted{"恢复"}else{"静音"})};
+        popup.scaled(367.0,92.0,1.0-0.06*press).centered_text(367.0,92.0,label,9.0,W::Semibold,theme::WHITE,H::Center);
     }
 
     fn draw_music_lyrics(&mut self,c:&Card) {
@@ -368,8 +372,8 @@ impl App {
         let sit = self.sit_mode;
         let sw = c.hit(160.0, 35.0, 38.0, 22.0, "w-remind")
             .on_hover_text(match (sit, if sit { self.settings.sit_remind } else { self.water.remind }) {
-                (false, true) => "关闭喝水提醒", (false, false) => "打开喝水提醒",
-                (true, true) => "关闭久坐提醒", (true, false) => "打开久坐提醒",
+                (false, true) => locale.text("关闭喝水提醒"), (false, false) => locale.text("打开喝水提醒"),
+                (true, true) => locale.text("关闭久坐提醒"), (true, false) => locale.text("打开久坐提醒"),
             });
         let (sh, _) = c.hover_t(&sw);
         let on = lerp(self.remind_t.pos, self.sit_t.pos, sv);
@@ -538,24 +542,25 @@ impl App {
             c.text(44.0, 59.0, locale.text("待活动"), 24.0, W::Bold, fill, H::Left);
         } else if counting {
             let ww = c.text(44.0, 61.0, &left.to_string(), size::HERO, W::Bold, theme::WHITE, H::Left);
-            c.text(44.0 + ww + 5.0, 60.0, "分钟后提醒", 11.0, W::Semibold, theme::GRAY, H::Left);
+            c.text(44.0 + ww + 5.0, 60.0, locale.text("分钟后提醒"), 11.0, W::Semibold, theme::GRAY, H::Left);
         } else {
-            c.text(44.0,59.0,if on{"等待提醒"}else{locale.text("已关闭")},24.0,W::Bold,theme::GRAY,H::Left);
+            c.text(44.0,59.0,if on{locale.text("等待提醒")}else{locale.text("已关闭")},24.0,W::Bold,theme::GRAY,H::Left);
         }
 
         // 已坐 25 分钟 · 10:45 提醒
-        let tail = if pending { "确认提醒或起身后重新计时".to_string() }
-            else if !on { "久坐提醒已关闭".to_string() }
-            else if lunch { "午休中不提醒".to_string() }
-            else if !in_hours { format!("{:02}:00–{:02}:00 外不提醒", self.settings.water_start, self.settings.water_end) }
-            else if !counting && focusing { "专注结束后再提醒".to_string() }
-            else { format!("{} 提醒", Self::clock_after(env, self.sit_due() - self.t)) };
+        let tail = if pending { locale.text("确认提醒或起身后重新计时").to_string() }
+            else if !on { locale.text("久坐提醒已关闭").to_string() }
+            else if lunch { locale.text("午休中不提醒").to_string() }
+            else if !in_hours { locale.format("{0} 外不提醒",&[("0",format!("{:02}:00–{:02}:00",self.settings.water_start,self.settings.water_end))]) }
+            else if !counting && focusing { locale.text("专注结束后再提醒").to_string() }
+            else { locale.format("{0} 提醒",&[("0",Self::clock_after(env,self.sit_due()-self.t))]) };
         let mut x = 44.0;
         if !pending && counting {
-            x += c.text(x, 77.0, "已坐 ", size::SMALL, W::Regular, theme::GRAY, H::Left);
-            x += c.text(x, 77.0, &format!("{sat} 分钟"), size::SMALL, W::Bold, fill, H::Left);
+            x += c.text(x, 77.0, locale.text("已坐 "), size::SMALL, W::Regular, theme::GRAY, H::Left);
+            x += c.text(x, 77.0, &locale.format("{0} 分钟",&[("0",sat.to_string())]), size::SMALL, W::Bold, fill, H::Left);
             x += c.text(x,77.0," · ",size::SMALL,W::Regular,theme::GRAY,H::Left);
         }
+        let tail=if locale.is_english(){c.fit(&tail,size::SMALL,W::Regular,(199.0-x).max(0.0))}else{tail};
         c.text(x, 77.0, &tail, size::SMALL, W::Regular, theme::GRAY, H::Left);
         c.fill(44.0, 84.0, 151.0, 3.5, 1.75, Color32::from_rgb(34, 34, 37));
         if frac > 0.0 {
@@ -565,13 +570,13 @@ impl App {
         let (b, bc) = capsule(c, 43.0, 98.0, 62.0, 25.0, "sit-stand", Color32::from_rgb(24, 84, 52), Color32::from_rgb(30, 104, 64));
         paint::chair(&bc, 55.5, 110.5, 0.36, Color32::from_rgb(150, 230, 180));
         bc.text(64.0, 114.0, locale.text("起身了"), size::BODY, W::Semibold, Color32::from_rgb(220, 244, 228), H::Left);
-        if b.on_hover_text("确认已起身，重新计时").clicked() { self.stood_up(); }
+        if b.on_hover_text(locale.text("确认已起身，重新计时")).clicked() { self.stood_up(); }
 
         // 右侧：与喝水同一个环，环心是椅子。
         Self::progress_ring(c, 292.0, 78.0, 33.0, 6.0, frac, Color32::from_rgb(16, 48, 32), if on { fill } else { Color32::from_gray(90) });
-        let (label, ink) = if !on { ("已关", theme::GRAY) }
-            else if pending { ("动一动", fill) }
-            else { ("坐着", Color32::from_gray(217)) };
+        let (label, ink) = if !on { (locale.text("已关"), theme::GRAY) }
+            else if pending { (locale.text("动一动"), fill) }
+            else { (locale.text("坐着"), Color32::from_gray(217)) };
         paint::chair(c, 292.0, 76.0, 0.75, if !on { theme::GRAY } else if pending { fill } else { theme::WHITE });
         c.text(292.0, 101.0, label, 10.5, W::Semibold, ink, H::Center);
     }
@@ -1025,7 +1030,7 @@ impl App {
                     self.todos.save();self.todo_first=self.todo_first.min(self.todos.items.len().saturating_sub(3));break;
                 }
                 if r.clicked() && !edit_this && !reminder_clicked && !today_item {
-                    self.say(format!("{}的待办，今天不用做", crate::model::repeat_label(item.repeat)));
+                    self.say(locale.format("{0}的待办，今天不用做",&[("0",locale.repeat(item.repeat,false))]));
                 } else if r.clicked() && !r.double_clicked() && !edit_this && !reminder_clicked {
                     let now = self.todos.items[i].done_for(&env.today);
                     self.todos.items[i].toggle(&env.today);
@@ -1042,7 +1047,7 @@ impl App {
             if self.todo_choosing{
                 c.text(370.0,120.0,if rest>0{locale.text("点选修改 · 滚轮查看")}else{locale.text("点击要修改的事项")},size::TINY,W::Regular,theme::GRAY,H::Right);
             }else if rest > 0 {
-                c.text(370.0, 120.0, &format!("共 {count} 项 · 滚轮查看"), size::TINY, W::Regular, theme::DIM, H::Right);
+                c.text(370.0, 120.0, &locale.format("共 {0} 项 · 滚轮查看",&[("0",count.to_string())]), size::TINY, W::Regular, theme::DIM, H::Right);
             }
         }
 
@@ -1152,8 +1157,8 @@ impl App {
             if hit.clicked(){self.mail_toggle_trash();return;}
         }
         if !self.mail.manage.message.is_empty(){
-            c.text(42.0,134.0,&c.fit(&self.mail.manage.message,8.0,W::Regular,125.0),8.0,W::Regular,theme::GRAY,H::Left);
-            if c.hit(40.0,123.0,130.0,16.0,"mail-manage-status").on_hover_text(format!("{}\n点击刷新邮件状态",self.mail.manage.message)).clicked(){self.mail_manage_request(None,folder,Action::Load);}
+            c.text(42.0,134.0,&c.fit(&locale.status(&self.mail.manage.message),8.0,W::Regular,125.0),8.0,W::Regular,theme::GRAY,H::Left);
+            if c.hit(40.0,123.0,130.0,16.0,"mail-manage-status").on_hover_text(locale.format("{0}\n点击刷新邮件状态",&[("0",locale.status(&self.mail.manage.message))])).clicked(){self.mail_manage_request(None,folder,Action::Load);}
         }
         let indices:Vec<_>=self.mail_rows().iter().enumerate().filter(|(_,m)|trash||!self.mail.manage.unread_only||self.mail_seen(m,folder)==Some(false)).map(|(i,_)|i).collect();
         if indices.is_empty(){
@@ -1201,7 +1206,7 @@ impl App {
                     }
                 }else{row.text(row_w-6.0,cy+4.0,item.time.rsplit(' ').next().unwrap_or(&item.time),10.0,W::Regular,theme::GRAY,H::Right);}
                 row.seg((6.0,row_h-0.5),(row_w-6.0,row_h-0.5),0.5,Color32::from_gray(40));
-                hit.clone().on_hover_text(format!("{}\n{}\n收件邮箱：{}\n{}",item.from,item.subject,item.account,item.time));
+                hit.clone().on_hover_text(locale.format("{0}\n{1}\n收件邮箱：{2}\n{3}",&[("0",item.from.to_string()),("1",item.subject.to_string()),("2",item.account.clone()),("3",item.time.to_string())]));
                 if hit.clicked()&&!acted{self.mail_open(&raw);}
             }
         });
@@ -1224,7 +1229,7 @@ impl App {
         let folder=self.mail.manage.folder();let ready=self.mail_ready(&item.account,folder);
         let seen=self.mail_seen(raw,folder)==Some(true);
         let status=if folder==crate::mail_manage::Folder::Trash{"恢复"}else if seen{"标为未读"}else{"标为已读"};
-        c.text(215.0,50.0,status,9.0,W::Regular,if ready{theme::BLUE}else{theme::DIM},H::Right);
+        c.text(215.0,50.0,&c.fit(locale.text(status),9.0,W::Regular,54.0),9.0,W::Regular,if ready{theme::BLUE}else{theme::DIM},H::Right);
         if c.hit(166.0,39.0,50.0,18.0,("mail-detail-seen",item.uid)).clicked()&&ready{
             let action=if folder==crate::mail_manage::Folder::Trash{crate::mail_manage::Action::Move{uid:item.uid}}else{crate::mail_manage::Action::Read{uid:item.uid,seen:!seen}};
             self.mail_manage_request(Some(&item.account),folder,action);
@@ -1270,7 +1275,7 @@ impl App {
         });
 
         if !self.mail.manage.message.is_empty(){
-            c.text(46.0,229.0,&c.fit(&self.mail.manage.message,8.0,W::Regular,130.0),8.0,W::Regular,theme::GRAY,H::Left);
+            c.text(46.0,229.0,&c.fit(&locale.status(&self.mail.manage.message),8.0,W::Regular,130.0),8.0,W::Regular,theme::GRAY,H::Left);
             c.hit(44.0,219.0,132.0,15.0,"mail-detail-status").on_hover_text(&self.mail.manage.message);
         }
         // 底部一行：会议时间（绿）优先，其次验证码（点一下复制）。

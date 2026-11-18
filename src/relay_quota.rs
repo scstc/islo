@@ -4,6 +4,7 @@
 //! https://github.com/songquanpeng/one-api/blob/main/controller/billing.go
 //! https://github.com/Wei-Shaw/sub2api/blob/main/backend/internal/handler/gateway_handler.go
 use super::{Snapshot, Window};
+use crate::i18n::Locale;
 use serde_json::Value;
 use std::io::Read;
 use std::time::{Duration,Instant};
@@ -49,23 +50,38 @@ impl Quota {
     pub fn unavailable_text(&self)->&'static str{
         if self.amounts.iter().any(|a|matches!(a.scope,Scope::Subscription)){"额度暂不可查询"}else{"余额暂不可查询"}
     }
-    pub fn compact(&self) -> String {
-        let Some(a) = self.primary() else { return self.unavailable_text().into() };
-        if matches!(a.scope,Scope::Subscription){format!("{}剩余 {}",a.label,a.remaining_text())}else{a.remaining_text()}
+    pub(crate) fn compact_in(&self, locale: Locale) -> String {
+        let Some(amount) = self.primary() else { return locale.text(self.unavailable_text()).into() };
+        let value = amount.remaining_text_in(locale);
+        if matches!(amount.scope,Scope::Subscription) {
+            locale.format("{0}剩余 {1}",&[("0",locale.text(&amount.label).into()),("1",value)])
+        } else { value }
     }
-    pub fn full(&self) -> String {
-        let mut rows = vec![self.source.clone()];
-        if self.primary().is_none(){rows.push(self.unavailable_text().into());}
-        for a in self.amounts.iter().filter(|a|a.displayable()) {
-            let value = a.remaining_text();
-            let used = a.used.map(|n|format!("，已用 {} {}",number(n),a.unit)).unwrap_or_default();
-            rows.push(format!("{}：剩余 {value}{used}",a.label));
+    #[cfg(test)]
+    pub(crate) fn compact(&self) -> String { self.compact_in(Locale::ZhCn) }
+
+    pub(crate) fn label_in<'a>(&self, amount:&'a Amount, locale:Locale)->&'a str {
+        if matches!(amount.scope,Scope::Reported)&&self.source!="Sub2API"{&amount.label}else{locale.text(&amount.label)}
+    }
+
+    pub(crate) fn full_in(&self, locale: Locale) -> String {
+        let mut rows = vec![locale.text(&self.source).into()];
+        if self.primary().is_none(){rows.push(locale.text(self.unavailable_text()).into());}
+        for amount in self.amounts.iter().filter(|amount|amount.displayable()) {
+            let unit = amount.unit_in(locale);
+            let label = self.label_in(amount,locale);
+            let used = amount.used.map(|n|locale.format("，已用 {0} {1}",&[("0",number(n)),("1",unit.into())])).unwrap_or_default();
+            rows.push(locale.format("{0}：剩余 {1}{2}",&[("0",label.into()),("1",amount.remaining_text_in(locale)),("2",used)]));
         }
         if self.amounts.iter().any(|a|a.displayable()&&matches!(a.scope,Scope::Subscription)){
-            if let Some(at) = self.expires_at.and_then(|t|chrono::DateTime::from_timestamp(t,0)) { rows.push(format!("到期 {} UTC",at.format("%Y-%m-%d %H:%M"))); }
+            if let Some(at) = self.expires_at.and_then(|t|chrono::DateTime::from_timestamp(t,0)) {
+                rows.push(locale.format("到期 {0} UTC",&[("0",at.format("%Y-%m-%d %H:%M").to_string())]));
+            }
         }
         rows.join("\n")
     }
+    #[cfg(test)]
+    fn full(&self) -> String { self.full_in(Locale::ZhCn) }
 }
 impl Amount {
     fn displayable(&self)->bool{
@@ -73,10 +89,13 @@ impl Amount {
             Scope::Account|Scope::Reported=>true,Scope::Subscription=>self.limit.is_some_and(|n|n.is_finite()&&n>0.0),_=>false,
         }
     }
-    pub fn remaining_text(&self)->String{
-        if !self.displayable(){return "额度暂不可查询".into();}
+    fn unit_in(&self,locale:Locale)->&str {
+        if matches!(self.scope,Scope::Reported){&self.unit}else{locale.text(&self.unit)}
+    }
+    pub(crate) fn remaining_text_in(&self,locale:Locale)->String{
+        if !self.displayable(){return locale.text("额度暂不可查询").into();}
         let remaining=self.remaining.unwrap();
-        if matches!(self.scope,Scope::Subscription){format!("{:.0}%",(remaining/self.limit.unwrap()*100.0).clamp(0.0,100.0))}else{format!("{} {}",number(remaining),self.unit)}
+        if matches!(self.scope,Scope::Subscription){format!("{:.0}%",(remaining/self.limit.unwrap()*100.0).clamp(0.0,100.0))}else{format!("{} {}",number(remaining),self.unit_in(locale))}
     }
 }
 fn number(n:f64)->String {
@@ -476,6 +495,14 @@ mod tests {
     #[test] fn compact_names_the_exhausted_limiting_window(){
         let q=Quota{source:"Sub2API".into(),expires_at:None,amounts:vec![amount("每日","USD",Some(10.0),Some(10.0),Some(0.0),false,Scope::Subscription),amount("每周","USD",Some(0.0),Some(20.0),Some(20.0),false,Scope::Subscription)]};
         assert_eq!(q.compact(),"每周剩余 0%");
+        assert_eq!(q.compact_in(Locale::En),"Weekly remaining: 0%");
+    }
+    #[test] fn i18n_custom_relay_preserves_the_script_label_and_unit(){
+        let snapshot=script::parse_result(&json!({"planName":"每周","unit":"站点配额","remaining":8}),"自定义查询").unwrap();
+        let quota=snapshot.relay.unwrap();
+        assert_eq!(quota.label_in(quota.primary().unwrap(),Locale::En),"每周");
+        assert_eq!(quota.compact_in(Locale::En),"8 站点配额");
+        assert!(quota.full_in(Locale::En).contains("每周: 8 站点配额 remaining"));
     }
     #[test] fn bases_are_https_and_never_contain_credentials_or_parameters(){
         for bad in ["http://example.com","http://localhost:8080","https://u:p@example.com","https://example.com?key=secret","https://example.com/#secret","file:///tmp/a","https://example.com\\evil","https://exa mple.com"] {assert!(normalize_base_url(bad).is_err(),"{bad}");}

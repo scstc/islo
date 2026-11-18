@@ -2375,9 +2375,9 @@ impl App {
                 inner.circle(x+10.0,cy+8.5,6.0,Color32::from_gray(238));
                 inner.centered_text(x+10.0,cy+8.5,&tag,8.5,W::Bold,Color32::from_gray(28),H::Center);
             }
-            let name=if u.unidentified(){format!("{} · 账号未确认",u.source.name())}
-                else{match self.unread_tag(i){Some(n)=>format!("{} · 账号 {n}",u.source.name()),None=>u.source.name().to_string()}};
-            let button=inner.hit(0.0,cy-slot/2.0,UNREAD_W,slot,self.unread_id(i)).on_hover_text(format!("查看{name}"));
+            let name=if u.unidentified(){locale.format("{0} · 账号未确认",&[("0",locale.text(u.source.name()).into())])}
+                else{match self.unread_tag(i){Some(n)=>locale.format("{0} · 账号 {1}",&[("0",locale.text(u.source.name()).into()),("1",n.to_string())]),None=>locale.text(u.source.name()).into()}};
+            let button=inner.hit(0.0,cy-slot/2.0,UNREAD_W,slot,self.unread_id(i)).on_hover_text(locale.format("查看{0}",&[("0",name)]));
             if button.clicked(){cmds.push(Cmd::ViewMessenger(u));}
         }
         for (i,kind) in self.health_badges().into_iter().enumerate() {
@@ -2385,7 +2385,7 @@ impl App {
             if cy< -slot || cy>height+slot {continue;}
             kind.icon(&inner,x,cy,0.8);
             inner.circle(x+10.0,cy-9.0,2.6,Color32::from_rgb(255,59,48));
-            let button=crate::quota_ui::bar_tooltip(inner.hit(0.0,cy-slot/2.0,UNREAD_W,slot,kind.id().to_string()),format!("{} · 点击确认，重新计时",kind.label()));
+            let button=crate::quota_ui::bar_tooltip(inner.hit(0.0,cy-slot/2.0,UNREAD_W,slot,kind.id().to_string()),locale.format("{0} · 点击确认，重新计时",&[("0",locale.text(kind.label()).into())]));
             if button.clicked(){self.confirm_health_reminder(kind);}
         }
         if max_scroll>0.0 {
@@ -2421,7 +2421,7 @@ impl App {
             let button=c.hit(0.0,0.0,w,h,u.source.name()).on_hover_text(locale.format("查看{0}",&[("0",format!("{}",locale.text(u.source.name())))]));
             if button.clicked(){cmds.push(Cmd::ViewMessenger(u));}
         }else if count>1 {
-            let button=c.hit(0.0,0.0,w,h,"messenger-stack").on_hover_text(format!("{count} 条未读 · 展开挑选"));
+            let button=c.hit(0.0,0.0,w,h,"messenger-stack").on_hover_text(locale.format("{0} 条未读 · 展开挑选",&[("0",count.to_string())]));
             if button.clicked(){self.reveal_unread();}
         }
         for (i,kind) in health.into_iter().enumerate() {
@@ -2430,7 +2430,7 @@ impl App {
             let start=if k==0{0.0}else{(if horizontal{x}else{y})-step/2.0};
             let end=if k+1==icons{length}else{(if horizontal{x}else{y})+step/2.0};
             let button=if horizontal{c.hit(start,0.0,end-start,BAR_H,kind.id().to_string())}else{c.hit(0.0,start,32.0,end-start,kind.id().to_string())};
-            if crate::quota_ui::bar_tooltip(button,format!("{} · 点击确认，重新计时",kind.label())).clicked(){self.confirm_health_reminder(kind);}
+            if crate::quota_ui::bar_tooltip(button,locale.format("{0} · 点击确认，重新计时",&[("0",locale.text(kind.label()).into())])).clicked(){self.confirm_health_reminder(kind);}
         }
     }
     /// 展开面板，让旁边的未读胶囊露出来。
@@ -2830,6 +2830,7 @@ impl App {
     // 顶栏：电池 + 日期 + 时钟。药丸里的电池与时钟会「飞」到顶栏位置（共享元素过渡）。
     // ---------------------------------------------------------------
     fn shared_header(&mut self, base: &Card, cx: f32, p: f32, reveal: f32, env: &Env) {
+        let locale=self.settings.locale();
         let local_cx = cx - base.origin.x;
         let fit=((WIN_W-32.0)/self.resident.target.width).min(1.0);
         let fitted=base.scaled(local_cx,15.0,lerp(fit,1.0,p));
@@ -2918,7 +2919,7 @@ impl App {
                 let left=hd.max(150.0);let right=(hc+clock_w).min(303.0);
                 if right>left {
                     // Windows 没有「抓手」光标，Grab 会变成四向箭头；保持普通箭头，改用岛体内的把手提示。
-                    let response=base.hit_drag(left,4.0,right-left,26.0,"island-position").on_hover_text("按住拖动位置");
+                    let response=base.hit_drag(left,4.0,right-left,26.0,"island-position").on_hover_text(locale.text("按住拖动位置"));
                     let (_,press)=base.hover_t(&response);
                     // 停留才显现：划过（< 0.3 s）什么都不出现；先露出把手，再慢慢浮起底色；按下立即到位，移开快速淡出。
                     let dwell=(if response.hovered() {self.t-*self.grip_hover_since.get_or_insert(self.t)}else{self.grip_hover_since=None;0.0}) as f32;
@@ -2948,7 +2949,7 @@ impl App {
             let y=lerp(15.0,18.0,m);
             paint::playback_bars(base,x,y,self.t,self.media.playing,theme::WHITE);
             if self.open && reveal>0.6 && base.hit(x-13.0,y-14.0,26.0,28.0,"header-music")
-                .on_hover_text(if self.settings.visible_pages[0]{"返回音乐播放页"}else{"打开音乐设置"})
+                .on_hover_text(if self.settings.visible_pages[0]{locale.text("返回音乐播放页")}else{locale.text("打开音乐设置")})
                 .on_hover_cursor(egui::CursorIcon::PointingHand).clicked(){self.show_page(0);}
         }
         let compact_alpha=1.0-smoothstep(0.0,0.22,p);

@@ -251,7 +251,8 @@ fn i18n_preview_gallery(){
 #[test]
 fn i18n_all_settings_are_english_and_fit_the_minimum_window_in_both_themes(){
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
-    for dark in [false,true] {for tab in 0..13 {
+    let last_tab=crate::app::PAGE_SETTINGS_TABS.into_iter().max().unwrap();
+    for dark in [false,true] {for tab in 0..=last_tab {
         let mut h=H::new();h.app.settings.language=crate::i18n::Language::English;
         h.app.settings.settings_theme=if dark{crate::settings_theme::SettingsTheme::Dark}else{crate::settings_theme::SettingsTheme::Light};
         h.app.settings_tab=tab;h.app.open_settings();h.ctx.set_embed_viewports(false);
@@ -270,19 +271,118 @@ fn i18n_all_settings_are_english_and_fit_the_minimum_window_in_both_themes(){
 fn i18n_all_empty_pages_and_internal_notices_are_english(){
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
     let mut h=H::new();h.app.settings.language=crate::i18n::Language::English;
-    for page in 0..9 {
+    for page in 0..crate::app::PAGE_NAMES.len() {
         h.app.show_page(page);h.hover(H::local(200.0,30.0),1.0);
         for shape in &h.shapes {if let egui::Shape::Text(text)=&shape.shape {
             assert!(!text.galley.text().chars().any(|ch|('\u{4e00}'..='\u{9fff}').contains(&ch)),"page {page} still has untranslated UI: {}",text.galley.text());
         }}
     }
     h.cursor=None;h.app.open=false;
-    for (title,body,page) in [("大写锁定","已开启",0),("键盘输入语言","中文",0),("电源已连接","当前电量 80%",0),("网络连接","以太网 · 网络已连接",0),("喝水时间到了","喝一口，休息一下",2)] {
+    for (title,body,page) in [("大写锁定","已开启",0),("键盘输入语言","中文",0),("电源已连接","当前电量 80%",0),("网络连接","以太网 · 网络已连接",0),("喝水时间到了","休息一下，喝 250 ml 水吧",2),("今日饮水目标达成","做得不错，继续保持",2)] {
         h.app.hud_notice=None;h.app.notice=None;h.app.alerts.clear();h.app.alert(title,body,page,false);
         for _ in 0..60{h.frame(vec![]);}
         for shape in &h.shapes {if let egui::Shape::Text(text)=&shape.shape {
             assert!(!text.galley.text().chars().any(|ch|('\u{4e00}'..='\u{9fff}').contains(&ch)),"notice {title} still has untranslated UI: {}",text.galley.text());
         }}
+    }
+}
+
+#[test]
+fn i18n_populated_weather_and_solar_keep_city_names_and_translate_cached_conditions(){
+    let _guard=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    let mut h=H::new();
+    h.app.settings.language=crate::i18n::Language::English;
+    h.app.weather.snapshot=Some(crate::weather::Snapshot{
+        place:"杭州".into(),temp:12.0,code:61,condition:Some("小雨".into()),
+        sunrise:Some("06:48".into()),sunset:Some("17:12".into()),feels:Some(9.0),humidity:Some(85),
+        days:vec![crate::weather::Day{label:"今天".into(),date:"2026-11-18".into(),high:15.0,low:8.0,..Default::default()}],
+        at:chrono::Utc::now().timestamp(),..Default::default()
+    });
+    h.app.show_page(crate::app::WEATHER_PAGE);
+    h.hover(H::local(180.0,55.0),1.0);
+    let labels=|h:&H|h.shapes.iter().filter_map(|shape|match &shape.shape {
+        egui::Shape::Text(text)=>Some(text.galley.text().to_owned()),_=>None,
+    }).collect::<Vec<_>>();
+    let forecast=labels(&h);
+    for text in ["杭州","Light rain","Feels like","Today"] {assert!(forecast.iter().any(|s|s==text),"{text}: {forecast:?}");}
+    assert!(forecast.iter().all(|s|s=="杭州"||!s.chars().any(|ch|('\u{4e00}'..='\u{9fff}').contains(&ch))),"{forecast:?}");
+    h.app.weather.solar_open=true;
+    h.hover(H::local(180.0,55.0),1.0);
+    let solar=labels(&h);
+    assert!(solar.iter().any(|label|label=="Forecast"));
+    assert!(solar.iter().all(|s|s=="杭州"||!s.chars().any(|ch|('\u{4e00}'..='\u{9fff}').contains(&ch))),"{solar:?}");
+    h.app.settings.language=crate::i18n::Language::Chinese;
+    h.frame(vec![]);
+    assert!(labels(&h).iter().any(|label|label=="返回天气"));
+    assert_eq!(h.app.weather.snapshot.as_ref().unwrap().condition.as_deref(),Some("小雨"));
+}
+
+#[test]
+fn i18n_qweather_config_localizes_test_results_and_preserves_location_data(){
+    let _guard=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    for theme in [crate::settings_theme::SettingsTheme::Dark,crate::settings_theme::SettingsTheme::Light] {
+        let mut h=H::new();
+        h.app.settings.language=crate::i18n::Language::English;
+        h.app.settings.settings_theme=theme;
+        h.app.settings_tab=crate::app::PAGE_SETTINGS_TABS[crate::app::WEATHER_PAGE];
+        h.app.weather_source.selected=crate::weather_source_ui::Provider::Qweather;
+        h.app.weather_source.mock_verified();
+        h.app.weather_source.config_open=true;
+        h.app.open_settings();
+        h.ctx.set_embed_viewports(false);
+        for _ in 0..2 {let _=i18n_settings_frame(&mut h,600.0);}
+        let output=i18n_settings_frame(&mut h,600.0);
+        let text=output.shapes.iter().filter_map(|shape|match &shape.shape {
+            egui::Shape::Text(label)=>Some(label.galley.text()),_=>None,
+        }).collect::<Vec<_>>();
+        for expected in ["QWeather","Test connection","Connection test passed","Save and enable"] {
+            assert!(text.contains(&expected),"{expected}: {text:?}");
+        }
+        assert!(text.iter().all(|s|!s.replace("余杭","").replace("浙江省 · 杭州市","").chars().any(|ch|('\u{4e00}'..='\u{9fff}').contains(&ch))),"{text:?}");
+    }
+}
+
+#[test]
+fn i18n_weather_errors_translate_generated_details_and_preserve_search_text(){
+    let locale=crate::i18n::Locale::En;
+    assert_eq!(locale.status("天气预报：直连服务返回 503；代理代理连接失败"),"Forecast: direct connection: HTTP 503; proxy: Proxy connection failed");
+    assert_eq!(locale.status("自动定位：响应格式无效"),"Automatic location: Invalid response format");
+    assert_eq!(locale.status("没找到「世界时钟」，请试试完整市名或英文名"),"Could not find \"世界时钟\". Try the full city name or its English name.");
+}
+
+#[test]
+fn i18n_health_schedule_keeps_hours_and_translates_lunch_controls(){
+    let _guard=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    let mut h=H::new();
+    h.app.settings.language=crate::i18n::Language::English;
+    h.app.settings.lunch_rest=true;
+    h.app.open_settings_category(1);
+    h.hover(H::local(300.0,60.0),1.0);
+    assert!(h.shapes.iter().any(|shape|matches!(&shape.shape,egui::Shape::Text(t) if t.galley.text().contains(" · Lunch "))));
+    h.click(H::local(200.0,113.0));
+    h.hover(H::local(300.0,60.0),0.5);
+    let text=h.shapes.iter().filter_map(|shape|match &shape.shape {
+        egui::Shape::Text(label)=>Some(label.galley.text()),_=>None,
+    }).collect::<Vec<_>>();
+    for expected in ["Reminder hours","Pause for lunch","Lunch break"] {
+        assert!(text.contains(&expected),"{expected}: {text:?}");
+    }
+    assert!(text.iter().all(|s|!s.chars().any(|ch|('\u{4e00}'..='\u{9fff}').contains(&ch))),"{text:?}");
+}
+
+#[test]
+fn i18n_mail_trash_localizes_actions_and_keeps_the_subject(){
+    let _guard=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    let mut h=managed_mail_fixture();
+    h.app.settings.language=crate::i18n::Language::English;
+    h.app.mail.manage.trash=vec![h.app.mail.recent[0].clone()];
+    h.app.mail.manage.trash_open=true;
+    h.hover(H::local(275.0,64.0),0.5);
+    let text=h.shapes.iter().filter_map(|shape|match &shape.shape {
+        egui::Shape::Text(label)=>Some(label.galley.text()),_=>None,
+    }).collect::<Vec<_>>();
+    for expected in ["Trash 1","Restore","测试邮件 1"] {
+        assert!(text.contains(&expected),"{expected}: {text:?}");
     }
 }
 

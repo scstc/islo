@@ -65,9 +65,15 @@ impl Locale {
         });
         for (template,pattern,names) in patterns {
             if let Some(captures)=pattern.captures(source){
-                // These fields contain generated status/error details, rather than user content.
-                let detail=match template.as_str(){"{0}：{1}"|"正在监听 Windows 通知 · 当前可见 {0} 条\n{1}"=>Some("1"),"需要授权码：{0}"|"需要授权：{0}"|"连接失败：{0}"|"仅监听 QQ · {0}"|"{0} · 10 秒后重试"=>Some("0"),_=>None};
-                let values:Vec<_>=names.iter().enumerate().map(|(i,name)|(name.as_str(),if depth<3&&detail==Some(name.as_str()){self.status_depth(&captures[i+1],depth+1)}else{captures[i+1].to_owned()})).collect();
+                // Only recurse into fields containing application-generated details.
+                let details:&[&str]=match template.as_str(){
+                    "{0}：{1}"|"正在监听 Windows 通知 · 当前可见 {0} 条\n{1}"=>&["1"],
+                    "需要授权码：{0}"|"需要授权：{0}"|"连接失败：{0}"|"仅监听 QQ · {0}"|"{0} · 10 秒后重试"|
+                    "天气预报：{0}"|"城市搜索：{0}"|"自动定位：{0}"=>&["0"],
+                    "天气预报：直连{0}；代理{1}"|"城市搜索：直连{0}；代理{1}"=>&["0","1"],
+                    _=>&[],
+                };
+                let values:Vec<_>=names.iter().enumerate().map(|(i,name)|(name.as_str(),if depth<3&&details.contains(&name.as_str()){self.status_depth(&captures[i+1],depth+1)}else{captures[i+1].to_owned()})).collect();
                 return self.format(template,&values);
             }
         }

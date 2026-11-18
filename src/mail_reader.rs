@@ -104,7 +104,7 @@ impl App {
                         if ui.add_enabled(ready,egui::Button::new(if seen{locale.text("标为未读")}else{locale.text("标为已读")})).clicked(){action=Some(crate::mail_manage::Action::Read{uid:raw.uid,seen:!seen});}
                         if ui.add_enabled(ready,egui::Button::new(locale.text("移到回收站"))).clicked(){action=Some(crate::mail_manage::Action::Move{uid:raw.uid});}
                     }
-                    if !self.mail.manage.message.is_empty(){ui.label(egui::RichText::new(&self.mail.manage.message).size(11.0).color(Color32::from_gray(160)));}
+                    if !self.mail.manage.message.is_empty(){ui.label(egui::RichText::new(locale.status(&self.mail.manage.message)).size(11.0).color(Color32::from_gray(160)));}
                 });
                 if let Some(event)=&item.meeting {
                     ui.horizontal_wrapped(|ui|{

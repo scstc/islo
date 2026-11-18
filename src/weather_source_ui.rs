@@ -3,13 +3,14 @@ use crate::{app::{App,WEATHER_PAGE},extras::{settings_card,settings_hint,setting
 use eframe::egui::{self,Color32,RichText};
 use std::sync::{Arc,atomic::{AtomicBool,Ordering},mpsc::Receiver};
 pub(crate) use qweather::{Provider,normalize_host};
-pub(crate) fn updated_at(at:i64)->String {
-    if at<=0{return "未取得".into();}
-    chrono::DateTime::from_timestamp(at,0).map(|d|d.with_timezone(&chrono::Local).format("%m-%d %H:%M").to_string()).unwrap_or_else(||"未取得".into())
+pub(crate) fn updated_at(at:i64,locale:crate::i18n::Locale)->String {
+    if at<=0{return locale.text("未取得").into();}
+    chrono::DateTime::from_timestamp(at,0).map(|d|d.with_timezone(&chrono::Local).format("%m-%d %H:%M").to_string()).unwrap_or_else(||locale.text("未取得").into())
 }
 
 /// 来源选项：地域图标、来源名、短标签；整张卡片都可点击。
 pub(crate) fn provider_option(ui:&mut egui::Ui,provider:Provider,selected:bool,width:f32)->egui::Response {
+    let locale=crate::i18n::locale(ui.ctx());
     let (rect,response)=ui.allocate_exact_size(egui::vec2(width,66.0),egui::Sense::click());
     let ctx=ui.ctx();let painter=ui.painter();
     let accent=color(ctx,Color32::from_rgb(111,174,255),Color32::from_rgb(48,113,211));
@@ -18,7 +19,7 @@ pub(crate) fn provider_option(ui:&mut egui::Ui,provider:Provider,selected:bool,w
     let border=if selected||response.has_focus(){accent}else{color(ctx,Color32::from_rgb(65,65,71),Color32::from_rgb(221,226,234))};
     painter.rect(rect,9.0,fill,egui::Stroke::new(if selected{1.3}else{1.0},border),egui::StrokeKind::Inside);
     let overseas=provider==Provider::OpenMeteo;
-    let title=if overseas{"Open-Meteo"}else{"和风天气"};
+    let title=locale.text(provider.name());
     let ink=if overseas{accent}else{color(ctx,Color32::from_rgb(111,209,177),Color32::from_rgb(29,139,105))};
     let icon=egui::Rect::from_min_size(rect.min+egui::vec2(10.0,10.0),egui::vec2(24.0,24.0));
     painter.rect_filled(icon,6.0,crate::paint::mix(fill,ink,0.15));
@@ -35,20 +36,20 @@ pub(crate) fn provider_option(ui:&mut egui::Ui,provider:Provider,selected:bool,w
     }
     let title_size=if width<185.0{11.5}else{13.0};
     painter.text(rect.min+egui::vec2(42.0,20.0),egui::Align2::LEFT_CENTER,title,egui::FontId::proportional(title_size),ui.visuals().text_color());
-    let badge=if overseas{"默认"}else if width<210.0{"Key"}else{"自备 Key"};
+    let badge=if overseas{locale.text("默认")}else if width<210.0{"Key"}else{locale.text("自备 Key")};
     let badge_ink=if overseas{ui.visuals().weak_text_color()}else{color(ctx,Color32::from_rgb(235,194,127),Color32::from_rgb(143,93,29))};
     let galley=painter.layout_no_wrap(badge.into(),egui::FontId::proportional(9.0),badge_ink);
     let badge_rect=egui::Rect::from_min_size(egui::pos2(rect.right()-10.0-galley.size().x-10.0,rect.top()+12.0),galley.size()+egui::vec2(10.0,6.0));
     painter.rect_filled(badge_rect,4.0,crate::paint::mix(fill,badge_ink,0.10));painter.galley(badge_rect.min+egui::vec2(5.0,3.0),galley,badge_ink);
     let mut x=rect.left()+42.0;
-    for (label,fee) in [(if overseas{"海外"}else{"国内"},false),(if overseas{"免费"}else{"免费额度"},true)]{
+    for (label,fee) in [(if overseas{locale.text("海外")}else{locale.text("国内")},false),(if overseas{locale.text("免费")}else{locale.text("免费额度")},true)]{
         let ink=if fee{color(ctx,Color32::from_rgb(130,211,168),Color32::from_rgb(30,127,79))}else{ui.visuals().weak_text_color()};
         let galley=painter.layout_no_wrap(label.into(),egui::FontId::proportional(10.0),ink);
         let pill=egui::Rect::from_min_size(egui::pos2(x,rect.top()+40.0),galley.size()+egui::vec2(10.0,6.0));
         painter.rect_filled(pill,4.0,crate::paint::mix(fill,ink,if fee{0.10}else{0.06}));painter.galley(pill.min+egui::vec2(5.0,3.0),galley,ink);x=pill.right()+5.0;
     }
     response.widget_info(||egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel,ui.is_enabled(),selected,title));
-    response.on_hover_text(if overseas{"海外源，默认免费使用，无需 Key。"}else{"和风天气：国内源·精准。自备 API Host 与 Key；有免费额度，超额可能收费。"})
+    response.on_hover_text(if overseas{locale.text("海外源，默认免费使用，无需 Key。")}else{locale.text("和风天气：国内源·精准。自备 API Host 与 Key；有免费额度，超额可能收费。")})
 }
 
 #[derive(Default)]
@@ -154,15 +155,16 @@ impl State {
         let mut config=self.config.clone();config.saved.push(location);config.save().map_err(Error::text)?;self.config=config;Ok(true)
     }
     fn connection_status(&self,ui:&mut egui::Ui){
-        let (title,detail,dark,light)=if self.testing.is_some(){("正在测试连接","正在检查城市搜索、实况和七日预报…",Color32::from_rgb(29,48,70),Color32::from_rgb(232,241,255))}
-        else if let Some(error)=self.test_error {("连接测试失败",error.text(),Color32::from_rgb(69,32,35),Color32::from_rgb(255,235,235))}
-        else if self.tested.is_some(){("连接测试通过","城市搜索、实况和七日预报可用。接下来选择城市，保存并启用。",Color32::from_rgb(24,60,44),Color32::from_rgb(228,247,237))}
-        else if self.configured(){("QWeather 已启用","凭据已安全保存，可直接添加或切换城市。",Color32::from_rgb(24,60,44),Color32::from_rgb(228,247,237))}
+        let locale=crate::i18n::locale(ui.ctx());
+        let (title,detail,dark,light)=if self.testing.is_some(){(locale.text("正在测试连接"),locale.text("正在检查城市搜索、实况和七日预报…"),Color32::from_rgb(29,48,70),Color32::from_rgb(232,241,255))}
+        else if let Some(error)=self.test_error {(locale.text("连接测试失败"),error.text(),Color32::from_rgb(69,32,35),Color32::from_rgb(255,235,235))}
+        else if self.tested.is_some(){(locale.text("连接测试通过"),locale.text("城市搜索、实况和七日预报可用。接下来选择城市，保存并启用。"),Color32::from_rgb(24,60,44),Color32::from_rgb(228,247,237))}
+        else if self.configured(){(locale.text("QWeather 已启用"),locale.text("凭据已安全保存，可直接添加或切换城市。"),Color32::from_rgb(24,60,44),Color32::from_rgb(228,247,237))}
         else{return;};
         let ink=if self.test_error.is_some(){color(ui.ctx(),Color32::from_rgb(255,155,155),Color32::from_rgb(174,46,46))}else if self.testing.is_some(){color(ui.ctx(),Color32::from_rgb(139,188,255),Color32::from_rgb(36,100,181))}else{color(ui.ctx(),Color32::from_rgb(123,225,169),Color32::from_rgb(25,120,76))};
         ui.add_space(7.0);
         egui::Frame::new().fill(color(ui.ctx(),dark,light)).stroke(egui::Stroke::new(1.0,ink.gamma_multiply(0.35))).corner_radius(8.0).inner_margin(10).show(ui,|ui|{
-            ui.set_min_width(ui.available_width());ui.label(RichText::new(title).size(13.5).strong().color(ink));ui.add(egui::Label::new(RichText::new(detail).size(11.5)).wrap());
+            ui.set_min_width(ui.available_width());ui.label(RichText::new(title).size(13.5).strong().color(ink));ui.add(egui::Label::new(RichText::new(locale.text(detail)).size(11.5)).wrap());
         });
     }
 }
@@ -232,7 +234,8 @@ impl App {
     }
 
     pub(crate) fn weather_source_settings(&mut self,ui:&mut egui::Ui){
-        settings_label(ui,"天气来源");
+        let locale=self.settings.locale();
+        settings_label(ui,locale.text("天气来源"));
         settings_card(ui,|ui|{
             let width=(ui.available_width()-ui.spacing().item_spacing.x)/2.0;
             ui.horizontal(|ui|{
@@ -247,33 +250,33 @@ impl App {
                 }
             });
             ui.add_space(5.0);
-            settings_hint(ui,&format!("当前生效：{}{}",self.weather_source.displayed.name(),if self.weather_source.selected!=self.weather_source.displayed{" · 所选来源尚未应用"}else{""}));
+            settings_hint(ui,&locale.format("当前生效：{0}{1}",&[("0",locale.text(self.weather_source.displayed.name()).into()),("1",if self.weather_source.selected!=self.weather_source.displayed{locale.text(" · 所选来源尚未应用").into()}else{String::new()})]));
             if self.weather_source.selected==Provider::OpenMeteo {
-                settings_hint(ui,"无需 Key。点击应用后使用 Open-Meteo 自己的城市与定位设置。");
-                if self.weather_source.displayed!=Provider::OpenMeteo&&ui.button("应用 Open-Meteo").clicked(){self.apply_weather_source();}
+                settings_hint(ui,locale.text("无需 Key。点击应用后使用 Open-Meteo 自己的城市与定位设置。"));
+                if self.weather_source.displayed!=Provider::OpenMeteo&&ui.button(locale.text("应用 Open-Meteo")).clicked(){self.apply_weather_source();}
                 return;
             }
             ui.add_space(4.0);ui.separator();ui.add_space(3.0);
             ui.horizontal_wrapped(|ui|{
-                ui.label(RichText::new("和风配置").strong());
-                if ui.small_button(if self.weather_source.config_open{"收起"}else{"展开"}).clicked(){self.weather_source.config_open=!self.weather_source.config_open;}
-                ui.hyperlink_to("配置网站 ↗","https://console.qweather.com/");
-                if ui.link("配置教程 ↗").clicked(){self.weather_source.tutorial_open=true;}
+                ui.label(RichText::new(locale.text("和风配置")).strong());
+                if ui.small_button(locale.text(if self.weather_source.config_open{"收起"}else{"展开"})).clicked(){self.weather_source.config_open=!self.weather_source.config_open;}
+                ui.hyperlink_to(locale.text("配置网站 ↗"),"https://console.qweather.com/");
+                if ui.link(locale.text("配置教程 ↗")).clicked(){self.weather_source.tutorial_open=true;}
             });
             if !self.weather_source.config_open {self.weather_source.connection_status(ui);}
             if self.weather_source.config_open {
                 ui.add_space(5.0);
                 ui.label(RichText::new("API Host").size(12.0));
-                let host=ui.add(egui::TextEdit::singleline(&mut self.weather_source.host).id_salt("qweather-host").hint_text("专属域名.qweatherapi.com").desired_width(f32::INFINITY));
+                let host=ui.add(egui::TextEdit::singleline(&mut self.weather_source.host).id_salt("qweather-host").hint_text(locale.text("专属域名.qweatherapi.com")).desired_width(f32::INFINITY));
                 ui.label(RichText::new("API Key").size(12.0));
                 let stored=self.weather_source.client.as_ref().is_some_and(|c|c.host==self.weather_source.host);
-                let key=ui.add(egui::TextEdit::singleline(&mut self.weather_source.key).id_salt("qweather-key").password(true).hint_text(if stored{"已安全保存；填写新 Key 可更换"}else{"粘贴专门为岛仔创建的 API Key"}).desired_width(f32::INFINITY));
+                let key=ui.add(egui::TextEdit::singleline(&mut self.weather_source.key).id_salt("qweather-key").password(true).hint_text(if stored{locale.text("已安全保存；填写新 Key 可更换")}else{locale.text("粘贴专门为岛仔创建的 API Key")}).desired_width(f32::INFINITY));
                 if host.changed()||key.changed(){self.weather_source.invalidate();}
                 ui.add_space(5.0);
                 ui.horizontal_wrapped(|ui|{
-                    if ui.add_enabled(self.weather_source.testing.is_none(),egui::Button::new("测试连接")).clicked(){self.weather_source.test_connection();}
-                    if self.weather_source.testing.is_some(){ui.spinner();ui.label("测试中…");ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));}
-                    if ui.add_enabled(stored||!self.weather_source.key.is_empty(),egui::Button::new("清除本机 Key")).clicked(){
+                    if ui.add_enabled(self.weather_source.testing.is_none(),egui::Button::new(locale.text("测试连接"))).clicked(){self.weather_source.test_connection();}
+                    if self.weather_source.testing.is_some(){ui.spinner();ui.label(locale.text("测试中…"));ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));}
+                    if ui.add_enabled(stored||!self.weather_source.key.is_empty(),egui::Button::new(locale.text("清除本机 Key"))).clicked(){
                         if self.weather_source.displayed==Provider::Qweather {
                             self.weather_source.selected=Provider::OpenMeteo;self.apply_weather_source();self.weather_source.selected=Provider::Qweather;
                             if self.weather_source.displayed!=Provider::OpenMeteo{return;}
@@ -287,19 +290,20 @@ impl App {
                     }
                 });
                 self.weather_source.connection_status(ui);
-                settings_hint(ui,"只启用 GeoAPI 和天气预报两类权限；Key 安全保存在 Windows 凭据管理器。");
-                egui::CollapsingHeader::new("免费额度详情").id_salt("qweather-free-details").show(ui,|ui|{
-                    ui.label("每自然月前 50,000 次免费");
-                    settings_hint(ui,"同一和风开发者账号合计，GeoAPI 与天气预报共享，并非每个 Key 各享一份。超额继续按量计费，不会自动停止。");
-                    settings_hint(ui,"岛仔限制本机每自然月最多 5,000 次请求，包含搜索、测试、刷新和失败尝试；不能限制同账号其他设备、应用或项目的用量。");
-                    ui.hyperlink_to("官方计费说明","https://dev.qweather.com/docs/finance/pricing/");
+                settings_hint(ui,locale.text("只启用 GeoAPI 和天气预报两类权限；Key 安全保存在 Windows 凭据管理器。"));
+                egui::CollapsingHeader::new(locale.text("免费额度详情")).id_salt("qweather-free-details").show(ui,|ui|{
+                    ui.label(locale.text("每自然月前 50,000 次免费"));
+                    settings_hint(ui,locale.text("同一和风开发者账号合计，GeoAPI 与天气预报共享，并非每个 Key 各享一份。超额继续按量计费，不会自动停止。"));
+                    settings_hint(ui,locale.text("岛仔限制本机每自然月最多 5,000 次请求，包含搜索、测试、刷新和失败尝试；不能限制同账号其他设备、应用或项目的用量。"));
+                    ui.hyperlink_to(locale.text("官方计费说明"),"https://dev.qweather.com/docs/finance/pricing/");
                 });
             }
-            if self.weather_source.test_error.is_none(){if let Some((message,error))=self.weather_source.message {ui.add(egui::Label::new(RichText::new(message).size(11.5).color(if error{color(ui.ctx(),Color32::from_rgb(255,137,137),Color32::from_rgb(183,48,48))}else{ui.visuals().weak_text_color()})).wrap());}}
+            if self.weather_source.test_error.is_none(){if let Some((message,error))=self.weather_source.message {ui.add(egui::Label::new(RichText::new(locale.status(message)).size(11.5).color(if error{color(ui.ctx(),Color32::from_rgb(255,137,137),Color32::from_rgb(183,48,48))}else{ui.visuals().weak_text_color()})).wrap());}}
         });
     }
 
     fn qweather_city_picker(&mut self,ui:&mut egui::Ui){
+        let locale=self.settings.locale();
         let popup=egui::Id::new("qweather-city-options");
         let input_id=egui::Id::new("qweather-city-input");
         let keys=if ui.is_enabled()&&ui.memory(|m|m.has_focus(input_id)||m.is_popup_open(popup)){
@@ -309,15 +313,15 @@ impl App {
         let before=self.weather_source.province.clone();
         let response=ui.horizontal(|ui|{
             egui::ComboBox::from_id_salt("qweather-province").width(108.0).height(230.0)
-                .selected_text(if self.weather_source.province.is_empty(){"不限省份"}else{&self.weather_source.province}).show_ui(ui,|ui|{
-                    ui.selectable_value(&mut self.weather_source.province,String::new(),"不限省份");
+                .selected_text(if self.weather_source.province.is_empty(){locale.text("不限省份")}else{locale.text(&self.weather_source.province)}).show_ui(ui,|ui|{
+                    ui.selectable_value(&mut self.weather_source.province,String::new(),locale.text("不限省份"));
                     for province in ["北京","天津","河北","山西","内蒙古","辽宁","吉林","黑龙江","上海","江苏","浙江","安徽","福建","江西","山东","河南","湖北","湖南","广东","广西","海南","重庆","四川","贵州","云南","西藏","陕西","甘肃","青海","宁夏","新疆","香港","澳门","台湾"]{
-                        ui.selectable_value(&mut self.weather_source.province,province.to_string(),province);
+                        ui.selectable_value(&mut self.weather_source.province,province.to_string(),locale.text(province));
                     }
                 });
             let input=ui.add_sized([(ui.available_width()-38.0).max(90.0),32.0],egui::TextEdit::singleline(&mut self.weather_source.query)
-                .id(input_id).hint_text("输入城市、县或区名称").margin(egui::vec2(9.0,7.0)));
-            let arrow=ui.add_sized([30.0,32.0],egui::Button::new("").corner_radius(7.0)).on_hover_text("展开城市候选");
+                .id(input_id).hint_text(locale.text("输入城市、县或区名称")).margin(egui::vec2(9.0,7.0)));
+            let arrow=ui.add_sized([30.0,32.0],egui::Button::new("").corner_radius(7.0)).on_hover_text(locale.text("展开城市候选"));
             let center=arrow.rect.center();ui.painter().add(egui::Shape::line(vec![center+egui::vec2(-4.0,-2.0),center+egui::vec2(0.0,2.0),center+egui::vec2(4.0,-2.0)],egui::Stroke::new(1.5,ui.visuals().text_color())));
             if ui.is_enabled(){
                 if self.weather_source.focus_city {input.request_focus();self.weather_source.focus_city=false;}
@@ -341,12 +345,12 @@ impl App {
         }
         egui::popup::popup_below_widget(ui,popup,&response,egui::popup::PopupCloseBehavior::CloseOnClickOutside,|ui|{
             ui.spacing_mut().item_spacing.y=2.0;
-            if self.weather_source.query.trim().is_empty(){settings_hint(ui,"输入名称或拼音，自动匹配城市、县和区。");}
-            else if self.weather_source.query.is_ascii()&&self.weather_source.query.trim().len()<2 {settings_hint(ui,"继续输入至少两个字母。");}
+            if self.weather_source.query.trim().is_empty(){settings_hint(ui,locale.text("输入名称或拼音，自动匹配城市、县和区。"));}
+            else if self.weather_source.query.is_ascii()&&self.weather_source.query.trim().len()<2 {settings_hint(ui,locale.text("继续输入至少两个字母。"));}
             else if let Some(error)=self.weather_source.search_error {
-                settings_hint(ui,error.text());if ui.button("重新搜索").clicked(){self.weather_source.search();}
-            }else if self.weather_source.search.is_some()||!self.weather_source.search_sent {ui.horizontal(|ui|{ui.spinner();ui.label("正在匹配城市…");});}
-            else if self.weather_source.results.is_empty(){settings_hint(ui,"没有匹配的城市，试试简称或选择省份；乡镇可改搜所属县区。");}
+                settings_hint(ui,locale.text(error.text()));if ui.button(locale.text("重新搜索")).clicked(){self.weather_source.search();}
+            }else if self.weather_source.search.is_some()||!self.weather_source.search_sent {ui.horizontal(|ui|{ui.spinner();ui.label(locale.text("正在匹配城市…"));});}
+            else if self.weather_source.results.is_empty(){settings_hint(ui,locale.text("没有匹配的城市，试试简称或选择省份；乡镇可改搜所属县区。"));}
             else {
                 let results=self.weather_source.results.clone();
                 egui::ScrollArea::vertical().id_salt("qweather-city-results").max_height(220.0).show(ui,|ui|{
@@ -364,12 +368,13 @@ impl App {
     }
 
     pub(crate) fn qweather_city_settings(&mut self,ui:&mut egui::Ui){
+        let locale=self.settings.locale();
         let active=self.weather_source.displayed==Provider::Qweather;
         let configured=self.weather_source.configured();
         let accent=color(ui.ctx(),Color32::from_rgb(96,164,255),Color32::from_rgb(34,108,220));
-        settings_label(ui,"和风城市");
+        settings_label(ui,locale.text("和风城市"));
         settings_card(ui,|ui|{
-            ui.horizontal(|ui|{ui.label(RichText::new("已保存城市").strong());ui.label(RichText::new(format!("{} / 5",self.weather_source.config.saved.len())).color(ui.visuals().weak_text_color()));});
+            ui.horizontal(|ui|{ui.label(RichText::new(locale.text("已保存城市")).strong());ui.label(RichText::new(format!("{} / 5",self.weather_source.config.saved.len())).color(ui.visuals().weak_text_color()));});
             let saved=self.weather_source.config.saved.clone();let(mut chosen,mut removed)=(None,None);
             for location in saved {
                 let cached=if active{self.weather.snapshot.as_ref().filter(|s|s.position.as_ref()==Some(&location.position))}else{None};
@@ -381,24 +386,24 @@ impl App {
                 self.weather_source.picked=Some(location.clone());self.weather_source.query.clear();self.weather_source.reset_search();
                 if active&&self.weather_source.tested.is_none(){self.qweather_select_location(location);}
             }
-            if self.weather_source.config.saved.is_empty(){settings_hint(ui,"还没有保存城市，搜索后点「添加城市」，最多保存 5 个。");}
-            else {settings_hint(ui,if active{"点击城市即可切换；只自动更新当前城市。"}else{"选择一个已保存城市，再点「保存并启用」。"});}
+            if self.weather_source.config.saved.is_empty(){settings_hint(ui,locale.text("还没有保存城市，搜索后点「添加城市」，最多保存 5 个。"));}
+            else {settings_hint(ui,if active{locale.text("点击城市即可切换；只自动更新当前城市。")}else{locale.text("选择一个已保存城市，再点「保存并启用」。")});}
             ui.add_space(7.0);ui.separator();ui.add_space(6.0);
-            settings_hint(ui,if configured{"和风暂不支持自动定位，请手动选择城市。"}else{"自动定位不可用：先填写 Host / Key 并通过连接测试，再选择城市。"});
+            settings_hint(ui,if configured{locale.text("和风暂不支持自动定位，请手动选择城市。")}else{locale.text("自动定位不可用：先填写 Host / Key 并通过连接测试，再选择城市。")});
             let full=self.weather_source.config.saved.len()>=crate::weather::MAX_CITIES;
             ui.add_enabled_ui(configured,|ui|{self.qweather_city_picker(ui);});
             ui.add_space(5.0);
             let choice=self.weather_source.city_choice.clone();
             let exists=choice.as_ref().is_some_and(|l|self.weather_source.config.saved.contains(l));
             ui.horizontal_wrapped(|ui|{
-                if ui.add_enabled(configured&&choice.is_some()&&!exists&&!full,egui::Button::new("添加城市")).clicked(){self.qweather_add_city();}
-                settings_hint(ui,if exists{"这个城市已保存"}else if full{"已保存 5 个城市，移除一个后可继续添加。"}else if choice.is_none(){"输入关键词后，从下拉列表选择具体地区。"}else{"添加后可随时在上方列表切换。"});
+                if ui.add_enabled(configured&&choice.is_some()&&!exists&&!full,egui::Button::new(locale.text("添加城市"))).clicked(){self.qweather_add_city();}
+                settings_hint(ui,if exists{locale.text("这个城市已保存")}else if full{locale.text("已保存 5 个城市，移除一个后可继续添加。")}else if choice.is_none(){locale.text("输入关键词后，从下拉列表选择具体地区。")}else{locale.text("添加后可随时在上方列表切换。")});
             });
             let target=self.weather_source.city_choice.as_ref().or(self.weather_source.picked.as_ref());
             let ready=configured&&target.is_some_and(|l|!full||self.weather_source.config.saved.contains(l));
-            if let Some(location)=target {settings_hint(ui,&format!("已选择：{} · {}",location.position.label,location.position.region));}
+            if let Some(location)=target {settings_hint(ui,&locale.format("已选择：{0} · {1}",&[("0",location.position.label.clone()),("1",location.position.region.clone())]));}
             ui.add_space(7.0);
-            if ui.add_enabled(ready,egui::Button::new(if active&&self.weather_source.tested.is_none(){"应用城市"}else{"保存并启用"})).clicked(){
+            if ui.add_enabled(ready,egui::Button::new(if active&&self.weather_source.tested.is_none(){locale.text("应用城市")}else{locale.text("保存并启用")})).clicked(){
                 if active&&self.weather_source.tested.is_none(){if let Some(location)=self.weather_source.city_choice.as_ref().or(self.weather_source.picked.as_ref()).cloned(){
                     match self.weather_source.remember_city(location.clone()){Ok(_)=>{self.qweather_select_location(location);self.weather_source.query.clear();self.weather_source.reset_search();},Err(error)=>self.weather_source.message=Some((error,true))}
                 }}else{self.apply_weather_source();}
@@ -406,37 +411,49 @@ impl App {
         });
         if active {
             settings_card(ui,|ui|{
-                ui.hyperlink_to("天气数据来自 QWeather","https://www.qweather.com/");
-                settings_hint(ui,&format!("本机本月已请求 {} 次 · 仅更新当前城市",qweather::usage()));
-                settings_hint(ui,"和风账号每月免费额度 50,000 次，多设备与所有 Key 共享；超额可能收费。");
+                ui.hyperlink_to(locale.text("天气数据来自 QWeather"),"https://www.qweather.com/");
+                settings_hint(ui,&locale.format("本机本月已请求 {0} 次 · 仅更新当前城市",&[("0",qweather::usage().to_string())]));
+                settings_hint(ui,locale.text("和风账号每月免费额度 50,000 次，多设备与所有 Key 共享；超额可能收费。"));
                 let(a,b)=self.weather_source.runtime.stamps();
-                settings_hint(ui,&format!("实况更新：{} · 预报更新：{}",updated_at(a),updated_at(b)));
-                settings_hint(ui,"实况约 60 分钟、预报约 6 小时刷新。降水概率为日夜较高值。");
-                if let Some(e)=self.weather_source.runtime.error {settings_hint(ui,e.text());}
+                settings_hint(ui,&locale.format("实况更新：{0} · 预报更新：{1}",&[("0",updated_at(a,locale)),("1",updated_at(b,locale))]));
+                settings_hint(ui,locale.text("实况约 60 分钟、预报约 6 小时刷新。降水概率为日夜较高值。"));
+                if let Some(e)=self.weather_source.runtime.error {settings_hint(ui,locale.text(e.text()));}
                 if let Some(s)=&self.weather.snapshot {for attribution in &s.attributions {ui.label(attribution);}}
             });
         }
     }
 
     pub(crate) fn weather_tutorial_ui(&mut self,ctx:&egui::Context){
+        let locale=self.settings.locale();
         if !self.weather_source.tutorial_open{self.weather_source.tutorial_textures.clear();return;}
         let id=egui::ViewportId::from_hash_of("daozai-weather-tutorial");
-        ctx.show_viewport_immediate(id,egui::ViewportBuilder::default().with_title("和风天气配置教程 · 岛仔")
+        ctx.show_viewport_immediate(id,egui::ViewportBuilder::default().with_title(locale.text("和风天气配置教程 · 岛仔"))
             .with_icon(crate::theme::app_icon()).with_inner_size([820.0,680.0]).with_min_inner_size([520.0,420.0]),|ctx,_|{
             if ctx.input(|i|i.viewport().close_requested()){self.weather_source.tutorial_open=false;}
             let original=ctx.style();let mut style=(*original).clone();
             style.visuals=if self.settings.settings_theme.dark(crate::settings_theme::system_dark(ctx)){egui::Visuals::dark()}else{egui::Visuals::light()};
             ctx.set_style(style);
             egui::CentralPanel::default().frame(egui::Frame::new().fill(ctx.style().visuals.panel_fill).inner_margin(16)).show(ctx,|ui|{
+                if locale.is_english() {
+                    egui::ScrollArea::vertical().show(ui,|ui|{
+                        ui.heading("Create a QWeather project");
+                        ui.label("In the QWeather console, create a project and allow GeoAPI and Weather Forecast access.");
+                        ui.heading("Create an API key");
+                        ui.label("Create a key and copy it along with your assigned qweatherapi.com host.");
+                        ui.heading("Enable QWeather in islo");
+                        ui.label(locale.text("填写 API Host 和 API Key，点「测试连接」。通过后搜索并选择城市，点「保存并启用」。"));
+                    });
+                    return;
+                }
                 ui.horizontal_wrapped(|ui|{
-                    ui.label(RichText::new("配置教程 · 步骤 01–10").strong());
+                    ui.label(RichText::new(locale.text("配置教程 · 步骤 01–10")).strong());
                     egui::ComboBox::from_id_salt("weather-tutorial-zoom").width(100.0)
-                        .selected_text(if self.weather_source.tutorial_zoom==0.0{"适应宽度".into()}else{format!("{:.0}%",self.weather_source.tutorial_zoom*100.0)})
-                        .show_ui(ui,|ui|{for (zoom,title) in [(0.0,"适应宽度"),(1.0,"100%"),(1.5,"150%"),(2.0,"200%")]{ui.selectable_value(&mut self.weather_source.tutorial_zoom,zoom,title);}});
+                        .selected_text(if self.weather_source.tutorial_zoom==0.0{locale.text("适应宽度").into()}else{format!("{:.0}%",self.weather_source.tutorial_zoom*100.0)})
+                        .show_ui(ui,|ui|{for (zoom,title) in [(0.0,locale.text("适应宽度")),(1.0,"100%"),(1.5,"150%"),(2.0,"200%")]{ui.selectable_value(&mut self.weather_source.tutorial_zoom,zoom,title);}});
                 });
                 ui.add_space(8.0);
-                settings_hint(ui,"仅需 GeoAPI + 天气预报两类权限，已涵盖搜索、实况、七日预报和日出日落。无需控制台 API。");
-                settings_hint(ui,"教程可离线连续滚动查看，支持适应宽度与放大。");
+                settings_hint(ui,locale.text("仅需 GeoAPI + 天气预报两类权限，已涵盖搜索、实况、七日预报和日出日落。无需控制台 API。"));
+                settings_hint(ui,locale.text("教程可离线连续滚动查看，支持适应宽度与放大。"));
                 ui.add_space(8.0);
                 if self.weather_source.tutorial_textures.is_empty(){
                     for (index,bytes) in [include_bytes!("../assets/weather/qweather-01-project.png").as_slice(),include_bytes!("../assets/weather/qweather-02-api-key.png").as_slice(),include_bytes!("../assets/weather/qweather-03-daozai.png").as_slice()].into_iter().enumerate(){
@@ -458,9 +475,9 @@ impl App {
                     ui.spacing_mut().item_spacing.y=0.0;
                     for (index,texture) in self.weather_source.tutorial_textures.iter().enumerate(){
                         if index==self.weather_source.tutorial_step10{
-                            ui.add_space(14.0);ui.label(RichText::new("10  回岛仔配置并启用").size(19.0).strong());ui.add_space(8.0);
-                            ui.label("填写 API Host 和 API Key，点「测试连接」。通过后搜索并选择城市，点「保存并启用」。");
-                            ui.label("当前生效变为「和风天气」后，切换完成。配置可收起；城市选择与应用按钮保持可用。");
+                            ui.add_space(14.0);ui.label(RichText::new(locale.text("10  回岛仔配置并启用")).size(19.0).strong());ui.add_space(8.0);
+                            ui.label(locale.text("填写 API Host 和 API Key，点「测试连接」。通过后搜索并选择城市，点「保存并启用」。"));
+                            ui.label(locale.text("当前生效变为「和风天气」后，切换完成。配置可收起；城市选择与应用按钮保持可用。"));
                             ui.add_space(10.0);
                         }
                         let height=width*texture.size()[1]as f32/texture.size()[0]as f32;

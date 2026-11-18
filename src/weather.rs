@@ -153,6 +153,9 @@ pub struct Snapshot {
 
 impl Snapshot {
     pub fn description(&self)->&str {self.condition.as_deref().unwrap_or_else(||describe(self.code))}
+    pub(crate) fn description_in(&self,locale:crate::i18n::Locale)->&str {
+        if locale.is_english(){locale.text(describe(self.code))}else{self.description()}
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

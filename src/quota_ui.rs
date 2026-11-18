@@ -27,7 +27,7 @@ pub(crate) struct State {
 }
 impl State {
     fn balance_text(&self,id:&str)->Option<String>{self.balance_text_in(id,crate::i18n::Locale::ZhCn)}
-    fn balance_text_in(&self,id:&str,locale:crate::i18n::Locale)->Option<String>{let s=self.rows.get(id)?.as_ref().ok()?;s.wallet.as_ref().map(|w|w.primary().compact_in(locale)).or_else(||s.credits.as_ref().map(|c|c.compact_in(locale))).or_else(||s.relay.as_ref().map(|q|q.compact()))}
+    fn balance_text_in(&self,id:&str,locale:crate::i18n::Locale)->Option<String>{let s=self.rows.get(id)?.as_ref().ok()?;s.wallet.as_ref().map(|w|w.primary().compact_in(locale)).or_else(||s.credits.as_ref().map(|c|c.compact_in(locale))).or_else(||s.relay.as_ref().map(|q|q.compact_in(locale)))}
     fn balance_loading(&self,id:&str)->bool{self.balance_text(id).is_none()&&(self.busy.contains(id)||!self.rows.contains_key(id))}
     /// 环类账号跟随在图标右侧的数字：有具体点数时取主周期剩余点数（如 Kiro 的 904）。
     fn ring_tail_text(&self,id:&str)->Option<String>{self.rows.get(id)?.as_ref().ok()?.rings().first()?.amount.as_ref().map(Amount::short)}
@@ -219,13 +219,12 @@ fn reset_text(at:Option<i64>,now:&chrono::DateTime<chrono::Local>,locale:crate::
     let format=if locale.is_english(){if at.date_naive()==now.date_naive(){"Resets today at %H:%M"}else if at.year()==now.year(){"Resets %b %-d at %H:%M"}else{"Resets %Y/%m/%d at %H:%M"}}else if at.date_naive()==now.date_naive(){"今天 %H:%M 重置"}else if at.year()==now.year(){"%-m月%-d日 %H:%M 重置"}else{"%Y/%-m/%-d %H:%M 重置"};
     at.format(format).to_string()
 }
-fn snapshot_details(snapshot:&Snapshot)->String{
-    let locale=crate::i18n::Locale::ZhCn;
-    if let Some(relay)=&snapshot.relay{return relay.full();}
-    if snapshot.kiro.is_some(){return kiro_details(snapshot);}
+fn snapshot_details(snapshot:&Snapshot,locale:crate::i18n::Locale)->String{
+    if let Some(relay)=&snapshot.relay{return relay.full_in(locale);}
+    if snapshot.kiro.is_some(){return kiro_details(snapshot,locale);}
     let mut lines=Vec::new();let now=chrono::Local::now();
     for w in snapshot.windows.iter().chain(snapshot.extra.iter()){
-        lines.push(format!("{}：剩余 {:.1}% · {}",w.label,w.remaining,reset_text(w.reset,&now,locale)));
+        lines.push(locale.format("{0}：剩余 {1}% · {2}",&[("0",locale.status(&w.label)),("1",format!("{:.1}",w.remaining)),("2",reset_text(w.reset,&now,locale))]));
     }
     lines.join("\n")
 }
@@ -235,21 +234,20 @@ fn connection_group(provider:Provider)->Provider{
 fn connection_name(provider:Provider)->&'static str{
     match connection_group(provider){Provider::ZCode=>"GLM / ZCode",Provider::NewApi=>"中转站",other=>other.name()}
 }
-fn kiro_details(snapshot:&Snapshot)->String{
-    let locale=crate::i18n::Locale::ZhCn;
+fn kiro_details(snapshot:&Snapshot,locale:crate::i18n::Locale)->String{
     let Some(details)=&snapshot.kiro else{return String::new();};
     let mut lines=details.pools.iter().map(|p|{
         let time=if let Some(at)=p.expires{
-            chrono::DateTime::from_timestamp(at,0).map(|t|format!("{} 到期",t.with_timezone(&chrono::Local).format("%Y/%-m/%-d %H:%M"))).unwrap_or_default()
+            chrono::DateTime::from_timestamp(at,0).map(|t|locale.format("{0} 到期",&[("0",t.with_timezone(&chrono::Local).format("%Y/%-m/%-d %H:%M").to_string())])).unwrap_or_default()
         }else if p.reset.is_some(){reset_text(p.reset,&chrono::Local::now(),locale)}else{String::new()};
-        format!("{}：{} 点{}",p.label,p.amount.full(),if time.is_empty(){String::new()}else{format!(" · {time}")})
+        locale.format("{0}：{1} 点{2}",&[("0",locale.status(&p.label)),("1",p.amount.full()),("2",if time.is_empty(){String::new()}else{format!(" · {time}")})])
     }).collect::<Vec<_>>();
-    for window in snapshot.windows.iter().skip(1){lines.push(format!("{}：{} 点 · {}",window.label,window.value_text(),reset_text(window.reset,&chrono::Local::now(),locale)));}
+    for window in snapshot.windows.iter().skip(1){lines.push(locale.format("{0}：{1} 点{2}",&[("0",locale.status(&window.label)),("1",window.value_text()),("2",format!(" · {}",reset_text(window.reset,&chrono::Local::now(),locale)))]));}
     lines.join("\n")
 }
 fn quota_reset_text(snapshot:&Snapshot,window:&quota::Window,now:&chrono::DateTime<chrono::Local>,locale:crate::i18n::Locale)->String{
     if window.label=="可用点数"{
-        if let Some(details)=&snapshot.kiro{return details.pools.first().map(|p|format!("月度 · {}",reset_text(p.reset,now,locale))).unwrap_or_default();}
+        if let Some(details)=&snapshot.kiro{return details.pools.first().map(|p|locale.format("月度 · {0}",&[("0",reset_text(p.reset,now,locale))])).unwrap_or_default();}
     }
     reset_text(window.reset,now,locale)
 }
@@ -435,14 +433,14 @@ impl App {
             if let Some(at)=chrono::DateTime::from_timestamp(s.at,0){
                 let at=at.with_timezone(&chrono::Local);let time=at.format(if at.date_naive()==chrono::Local::now().date_naive(){"%H:%M"}else{"%m/%d %H:%M"}).to_string();
                 let busy=self.quota.busy.contains(&a.id);let stale=self.quota.stale.get(&a.id);
-                let status=if busy{format!("{} · {time}",if a.provider==Provider::Claude{"读取中…"}else{"正在更新…"})}
-                    else if stale.is_some(){format!("上次记录 · {time}")}
-                    else if a.provider==Provider::Claude{format!("本地记录 · {time}")}
+                let status=if busy{format!("{} · {time}",if a.provider==Provider::Claude{locale.text("读取中…")}else{"正在更新…"})}
+                    else if stale.is_some(){locale.format("上次记录 · {0}",&[("0",time)])}
+                    else if a.provider==Provider::Claude{locale.format("本地记录 · {0}",&[("0",time)])}
                     else if let Some(wallet)=&s.wallet{let b=wallet.primary();if wallet.balances.len()>1{let other=wallet.balances.iter().find(|other|other.currency!=b.currency).unwrap();format!("另有 {} {} · {time}",other.currency,other.full(other.total))}else{format!("{} · {time} 更新",b.currency)}}
-                    else{format!("{time} 更新")};
+                    else{locale.format("{0} 更新",&[("0",time)])};
                 let x=if a.provider.balance(){125.0}else{157.0};let width=357.0-x;let y=154.0;
                 c.centered_text(x,y,&c.fit(&status,10.0,W::Regular,width),10.0,W::Regular,if stale.is_some()&&!busy{Color32::from_rgb(255,166,77)}else{theme::DIM},H::Left);
-                c.hit(x,y-6.0,width,8.0,("quota-update-time",&a.id)).on_hover_text(if let Some(reason)=stale{format!("{status}\n{reason}")}else{status});
+                c.hit(x,y-6.0,width,8.0,("quota-update-time",&a.id)).on_hover_text(if let Some(reason)=stale{format!("{status}\n{}",locale.status(reason))}else{status});
             }
         }
         if a.provider==Provider::WorkBuddy{
@@ -451,7 +449,7 @@ impl App {
                 c.text(125.0,81.0,locale.text("可用积分"),10.5,W::Regular,theme::GRAY,H::Left);
                 c.text(125.0,107.0,&credits.full(),23.0,W::Semibold,theme::WHITE,H::Left);
                 let detail=if let Some(reason)=self.quota.stale.get(&a.id){reason.clone()}else{credits.packages.iter().map(|(label,n)|format!("{label} {n}")).collect::<Vec<_>>().join(" · ")};c.text(125.0,131.0,&c.fit(&detail,10.0,W::Regular,225.0),10.0,W::Regular,theme::GRAY,H::Left);
-            }else{let text=result.and_then(|r|r.as_ref().err()).map(String::as_str).unwrap_or(locale.text("正在查询积分…"));for(i,line)in c.wrap(text,11.0,W::Regular,226.0,3).iter().enumerate(){c.text(125.0,92.0+i as f32*17.0,line,11.0,W::Regular,theme::GRAY,H::Left);}}
+            }else{let text=result.and_then(|r|r.as_ref().err()).map(String::as_str).unwrap_or(locale.text("正在查询积分…"));for(i,line)in c.wrap(&locale.status(text),11.0,W::Regular,226.0,3).iter().enumerate(){c.text(125.0,92.0+i as f32*17.0,line,11.0,W::Regular,theme::GRAY,H::Left);}}
             return;
         }
         if a.provider==Provider::DeepSeek{
@@ -462,15 +460,15 @@ impl App {
                     c.text(125.0,81.0,if wallet.available{locale.text("可用余额")}else{locale.text("余额不可用")},10.5,W::Regular,theme::GRAY,H::Left);
                     let amount=b.full(b.total);let size=(23.0*145.0/c.text_w(&amount,23.0,W::Semibold).max(145.0)).min(23.0);
                     c.text(125.0,109.0,&amount,size,W::Semibold,if !wallet.available{Color32::from_rgb(255,166,77)}else{theme::WHITE},H::Left);
-                    for (y,label,value) in [(90.0,"充值",b.topped_up),(118.0,"赠送",b.granted)]{
-                        c.text(281.0,y,label,10.0,W::Regular,theme::GRAY,H::Left);
+                    for (y,label,value) in [(90.0,locale.text("充值"),b.topped_up),(118.0,locale.text("赠送"),b.granted)]{
+                        c.text(281.0,y,locale.text(label),10.0,W::Regular,theme::GRAY,H::Left);
                         let text=b.full(value);let size=10.0*54.0/c.text_w(&text,10.0,W::Semibold).max(54.0);c.text(357.0,y,&text,size,W::Semibold,theme::WHITE,H::Right);
                     }
                     let time=chrono::DateTime::from_timestamp(s.at,0).map(|at|{let at=at.with_timezone(&chrono::Local);at.format(if at.date_naive()==chrono::Local::now().date_naive(){"%H:%M"}else{"%m/%d %H:%M"}).to_string()}).unwrap_or_default();
                     let status=if stale{locale.format("上次记录 · {0}",&[("0",format!("{}",time))])}else if self.quota.busy.contains(&a.id){locale.text("正在更新…").into()}else if wallet.balances.len()>1{let other=wallet.balances.iter().find(|other|other.currency!=b.currency).unwrap();locale.format("另有 {0} {1} · {2}",&[("0",format!("{}",other.currency)),("1",format!("{}",other.full(other.total))),("2",format!("{}",time))])}else{locale.format("{0} · {1} 更新",&[("0",format!("{}",b.currency)),("1",format!("{}",time))])};
                     c.text(125.0,113.0,&c.fit(&status,10.0,W::Regular,232.0),10.0,W::Regular,if stale{Color32::from_rgb(255,166,77)}else{theme::DIM},H::Left);
                 }
-            }else{let text=if self.quota.busy.contains(&a.id){"正在更新余额…"}else{result.and_then(|r|r.as_ref().err()).map(String::as_str).unwrap_or("等待更新余额")};for (i,line) in c.wrap(text,11.0,W::Regular,226.0,3).iter().enumerate(){c.text(125.0,92.0+i as f32*17.0,line,11.0,W::Regular,theme::GRAY,H::Left);}}
+            }else{let text=if self.quota.busy.contains(&a.id){locale.text("正在更新余额…")}else{result.and_then(|r|r.as_ref().err()).map(String::as_str).unwrap_or(locale.text("等待更新余额"))};for (i,line) in c.wrap(&locale.status(text),11.0,W::Regular,226.0,3).iter().enumerate(){c.text(125.0,92.0+i as f32*17.0,line,11.0,W::Regular,theme::GRAY,H::Left);}}
             return;
         }
         if a.provider.relay(){
@@ -478,32 +476,33 @@ impl App {
             if let Some(q)=snapshot.and_then(|s|s.relay.as_ref()){
                 if let Some(amount)=q.primary(){
                     let exhausted=amount.remaining.is_some_and(|n|n<=0.0)&&!amount.unlimited;
-                    let title=if matches!(amount.scope,quota::relay::Scope::Account){if amount.label=="账户余额"{"账户余额".into()}else{"账户剩余额度".into()}}else if amount.label=="剩余额度"{"剩余额度".into()}else{format!("{}剩余",amount.label)};
+                    let label=q.label_in(amount,locale);
+                    let title=if matches!(amount.scope,quota::relay::Scope::Account){if amount.label=="账户余额"{locale.text("账户余额").into()}else{locale.text("账户剩余额度").into()}}else if amount.label=="剩余额度"{label.into()}else{locale.format("{0}剩余",&[("0",label.into())])};
                     c.text(125.0,78.0,&c.fit(&title,11.0,W::Semibold,176.0),11.0,W::Semibold,theme::GRAY,H::Left);
-                    let value=amount.remaining_text();let size=23.0*(225.0/c.text_w(&value,23.0,W::Semibold).max(225.0));
+                    let value=amount.remaining_text_in(locale);let size=23.0*(225.0/c.text_w(&value,23.0,W::Semibold).max(225.0));
                     c.text(125.0,109.0,&value,size,W::Semibold,if exhausted{Color32::from_rgb(255,166,77)}else{theme::WHITE},H::Left);
-                    let detail=if exhausted{format!("{}已用尽",amount.label)}else if matches!(amount.scope,quota::relay::Scope::Subscription){
+                    let detail=if exhausted{locale.format("{0}已用尽",&[("0",label.into())])}else if matches!(amount.scope,quota::relay::Scope::Subscription){
                         let reset=snapshot.and_then(|s|s.windows.iter().find(|w|w.label==amount.label)).and_then(|w|w.reset);
                         format!("{} · {}",q.source,reset_text(reset,&chrono::Local::now(),locale))
-                    }else{format!("{} · 以站点返回单位为准",q.source)};
+                    }else{locale.format("{0} · 以站点返回单位为准",&[("0",locale.text(&q.source).into())])};
                     c.text(125.0,132.0,&c.fit(&detail,10.5,W::Regular,225.0),10.5,W::Regular,if exhausted{Color32::from_rgb(255,166,77)}else{theme::GRAY},H::Left);
                 }else{
-                    c.text(125.0,78.0,"账户余额与套餐额度",11.0,W::Semibold,theme::GRAY,H::Left);
-                    c.text(125.0,109.0,q.unavailable_text(),18.0,W::Semibold,theme::WHITE,H::Left);
-                    c.text(125.0,132.0,if a.provider==Provider::NewApi{"请检查查询模板或账户查询权限"}else{"请到站点查看账户余额或套餐"},10.5,W::Regular,theme::GRAY,H::Left);
+                    c.text(125.0,78.0,locale.text("账户余额与套餐额度"),11.0,W::Semibold,theme::GRAY,H::Left);
+                    c.text(125.0,109.0,locale.text(q.unavailable_text()),18.0,W::Semibold,theme::WHITE,H::Left);
+                    c.text(125.0,132.0,if a.provider==Provider::NewApi{locale.text("请检查查询模板或账户查询权限")}else{locale.text("请到站点查看账户余额或套餐")},10.5,W::Regular,theme::GRAY,H::Left);
                 }
-                if c.hit(310.0,60.0,47.0,22.0,("relay-details",&a.id)).on_hover_text("查看全部周期与额度").clicked(){
+                if c.hit(310.0,60.0,47.0,22.0,("relay-details",&a.id)).on_hover_text(locale.text("查看全部周期与额度")).clicked(){
                     self.quota.detail_account=Some(a.id.clone());self.settings_tab=11;self.open_settings();
                 }
-                c.text(355.0,77.0,"明细 ›",10.0,W::Regular,theme::GRAY,H::Right);
+                c.text(355.0,77.0,locale.text("明细 ›"),10.0,W::Regular,theme::GRAY,H::Right);
             }else{
-                let text=result.and_then(|r|r.as_ref().err()).map(String::as_str).unwrap_or("等待更新额度");
-                for(i,line)in c.wrap(text,11.0,W::Regular,226.0,3).iter().enumerate(){c.text(125.0,99.0+i as f32*17.0,line,11.0,W::Regular,theme::GRAY,H::Left);}
+                let text=result.and_then(|r|r.as_ref().err()).map(String::as_str).unwrap_or(locale.text("等待更新额度"));
+                for(i,line)in c.wrap(&locale.status(text),11.0,W::Regular,226.0,3).iter().enumerate(){c.text(125.0,99.0+i as f32*17.0,line,11.0,W::Regular,theme::GRAY,H::Left);}
             }
             return;
         }
         if a.provider.api_key()||a.provider==Provider::Doubao{
-            let label=match snapshot.map(|s|s.plan.as_str()).filter(|s|!s.is_empty()){Some(plan)=>format!("{} · {plan}",a.provider.name()),None=>a.provider.name().into()};
+            let label=match snapshot.map(|s|s.plan.as_str()).filter(|s|!s.is_empty()){Some(plan)=>format!("{} · {}",locale.text(a.provider.name()),locale.status(plan)),None=>locale.text(a.provider.name()).into()};
             c.text(157.0,64.0,&c.fit(&label,12.0,W::Semibold,145.0),12.0,W::Semibold,theme::WHITE,H::Left);
             if let Some(snapshot)=snapshot{
                 let mut main=snapshot.windows.iter().collect::<Vec<_>>();main.sort_by(|a,b|a.remaining.total_cmp(&b.remaining));
@@ -514,49 +513,49 @@ impl App {
                 if let Some(limit)=main.first(){
                     if rows.len()==3&&!rows.contains(limit){rows[2]=limit;}
                     let exhausted=limit.remaining<=0.0;
-                    let label=if exhausted{format!("{}已用尽",limit.label)}else{format!("{}剩余",limit.label)};
+                    let label=if exhausted{locale.format("{0}已用尽",&[("0",locale.status(&limit.label))])}else{locale.format("{0}剩余",&[("0",locale.status(&limit.label))])};
                     c.text(103.0,153.0,&c.fit(&label,9.0,W::Regular,96.0),9.0,W::Regular,if exhausted{Color32::from_rgb(255,166,77)}else{theme::GRAY},H::Center);
                 }
                 let now=chrono::Local::now();
                 for (i,w) in rows.iter().enumerate(){
                     let y=83.0+i as f32*23.0;let color=if w.remaining<=0.0{Color32::from_rgb(255,166,77)}else{displayed.iter().position(|v|**v==**w).map(|slot|colors[slot]).unwrap_or(theme::GRAY)};
                     c.circle(159.0,y-4.0,2.5,color);
-                    c.text(168.0,y,&c.fit(&w.label,11.0,W::Semibold,114.0),11.0,W::Semibold,theme::WHITE,H::Left);
+                    c.text(168.0,y,&c.fit(&locale.status(&w.label),11.0,W::Semibold,114.0),11.0,W::Semibold,theme::WHITE,H::Left);
                     c.text(355.0,y,&format!("{:.0}%",w.remaining),17.0,W::Semibold,if w.remaining<=0.0{color}else{theme::WHITE},H::Right);
                     c.text(168.0,y+12.0,&c.fit(&reset_text(w.reset,&now,locale),9.0,W::Regular,187.0),9.0,W::Regular,theme::GRAY,H::Left);
                 }
-                let details=c.hit(309.0,51.0,48.0,20.0,("api-quota-details",&a.id)).on_hover_text(snapshot_details(snapshot)).clicked();
-                c.text(355.0,64.0,"明细 ›",10.0,W::Regular,theme::GRAY,H::Right);
+                let details=c.hit(309.0,51.0,48.0,20.0,("api-quota-details",&a.id)).on_hover_text(snapshot_details(snapshot,locale)).clicked();
+                c.text(355.0,64.0,locale.text("明细 ›"),10.0,W::Regular,theme::GRAY,H::Right);
                 if details{self.quota.detail_account=Some(a.id.clone());self.settings_tab=11;self.open_settings();}
             }else{
                 logo(c,a.provider,103.0,105.0,40.0);
-                let text=result.and_then(|r|r.as_ref().err()).map(String::as_str).unwrap_or("等待更新额度");
-                for(i,line)in c.wrap(text,11.0,W::Regular,197.0,3).iter().enumerate(){c.text(157.0,96.0+i as f32*17.0,line,11.0,W::Regular,theme::GRAY,H::Left);}
+                let text=result.and_then(|r|r.as_ref().err()).map(String::as_str).unwrap_or(locale.text("等待更新额度"));
+                for(i,line)in c.wrap(&locale.status(text),11.0,W::Regular,197.0,3).iter().enumerate(){c.text(157.0,96.0+i as f32*17.0,line,11.0,W::Regular,theme::GRAY,H::Left);}
             }
             return;
         }
         ring(c,a,snapshot,103.0,105.0,70.0,colors);
-        let raw_plan=snapshot.map(|s|s.plan.as_str()).unwrap_or_default();let plan=match raw_plan{"pro"|"prolite"|"pro_lite"=>"Pro","plus"=>"Plus","free"=>"Free","team"|"business"=>"Business","enterprise"=>"Enterprise",other=>other};let label=if a.provider==Provider::Claude{"Claude · 本地记录".into()}else if plan.is_empty(){a.provider.name().to_owned()}else{format!("{} · {}",a.provider.name(),plan)};
+        let raw_plan=snapshot.map(|s|s.plan.as_str()).unwrap_or_default();let plan=match raw_plan{"pro"|"prolite"|"pro_lite"=>"Pro","plus"=>"Plus","free"=>"Free","team"|"business"=>"Business","enterprise"=>"Enterprise",other=>other};let label=if a.provider==Provider::Claude{locale.text("Claude · 本地记录").into()}else if plan.is_empty(){a.provider.name().to_owned()}else{format!("{} · {}",a.provider.name(),plan)};
         c.text(157.0,64.0,&c.fit(&label,12.0,W::Semibold,145.0),12.0,W::Semibold,theme::WHITE,H::Left);
         if let Some(s)=snapshot{
             let windows=s.rings();let now=chrono::Local::now();
             if windows.is_empty() && a.provider==Provider::ZCode{
-                c.text(157.0,104.0,"官网未分配体验额度",11.0,W::Regular,theme::GRAY,H::Left);
+                c.text(157.0,104.0,locale.text("官网未分配体验额度"),11.0,W::Regular,theme::GRAY,H::Left);
             }else if windows.len()==1{
-                let w=windows[0];c.text(157.0,103.0,&format!("{}剩余",w.label),12.0,W::Semibold,theme::WHITE,H::Left);
-                if let Some(amount)=&w.amount{let text=format!("{} 点",amount.full());let available=355.0-157.0-c.text_w(&format!("{}剩余",w.label),12.0,W::Semibold)-8.0;let size=12.5*(available/c.text_w(&text,12.5,W::Semibold).max(available));c.text(355.0,103.0,&text,size,W::Semibold,theme::WHITE,H::Right);}
+                let w=windows[0];c.text(157.0,103.0,&locale.format("{0}剩余",&[("0",locale.status(&w.label))]),12.0,W::Semibold,theme::WHITE,H::Left);
+                if let Some(amount)=&w.amount{let text=locale.format("{0} 点",&[("0",amount.full())]);let available=355.0-157.0-c.text_w(&locale.format("{0}剩余",&[("0",locale.status(&w.label))]),12.0,W::Semibold)-8.0;let size=12.5*(available/c.text_w(&text,12.5,W::Semibold).max(available));c.text(355.0,103.0,&text,size,W::Semibold,theme::WHITE,H::Right);}
                 let reset=quota_reset_text(s,w,&now,locale);c.text(157.0,124.0,&c.fit(&reset,11.0,W::Regular,197.0),11.0,W::Regular,theme::GRAY,H::Left);
             }else{
                 c.text(355.0,64.0,locale.text("剩余"),10.5,W::Regular,theme::GRAY,H::Right);
                 for (i,w)in windows.iter().enumerate(){
                     let y=86.0+i as f32*35.0;c.circle(159.0,y-4.0,2.5,colors[i]);
-                    c.text(168.0,y,&w.label,11.5,W::Semibold,theme::WHITE,H::Left);
+                    c.text(168.0,y,&locale.status(&w.label),11.5,W::Semibold,theme::WHITE,H::Left);
                     let reset=quota_reset_text(s,w,&now,locale);
                     c.text(168.0,y+17.0,&c.fit(&reset,11.0,W::Regular,185.0),11.0,W::Regular,theme::GRAY,H::Left);
                     c.centered_text(355.0,y+4.0,&w.value_text(),if w.amount.is_some(){13.0}else{22.0},W::Semibold,theme::WHITE,H::Right);
                 }
             }
-        }else{let message=if self.quota.busy.contains(&a.id){"正在更新额度…"}else{result.and_then(|r|r.as_ref().err()).map(String::as_str).unwrap_or("等待更新额度")};for(i,line)in c.wrap(message,11.0,W::Regular,197.0,2).iter().enumerate(){c.text(157.0,103.0+i as f32*17.0,line,11.0,W::Regular,theme::GRAY,H::Left);}}
+        }else{let message=if self.quota.busy.contains(&a.id){locale.text("正在更新额度…")}else{result.and_then(|r|r.as_ref().err()).map(String::as_str).unwrap_or(locale.text("等待更新额度"))};for(i,line)in c.wrap(&locale.status(message),11.0,W::Regular,197.0,2).iter().enumerate(){c.text(157.0,103.0+i as f32*17.0,line,11.0,W::Regular,theme::GRAY,H::Left);}}
     }
     fn quota_open_connection(&mut self,id:Option<String>){
         if self.quota.kiro_connecting.is_some()||self.quota.api_connecting.is_some()||self.quota.workbuddy_connecting.is_some()||self.quota.deepseek_connecting.is_some()||self.quota.gemini_connecting.is_some()||self.quota.doubao_connecting.is_some()||self.quota.login.is_some(){self.quota.connect_open=true;return;}
@@ -621,7 +620,7 @@ impl App {
                     });
                     let result=self.quota.rows.get(&a.id);let snapshot=result.and_then(|r|r.as_ref().ok());let error=self.quota.stale.get(&a.id).or_else(||result.and_then(|r|r.as_ref().err()));
                     if let Some(s)=snapshot{
-                        if a.provider.api_key()||a.provider==Provider::Doubao{ui.label(snapshot_details(s));}else if let Some(credits)=&s.credits{ui.horizontal_wrapped(|ui|{ui.label(egui::RichText::new(locale.text("可用积分")).size(11.0).color(ui.visuals().weak_text_color()));ui.label(egui::RichText::new(credits.full()).size(20.0).strong());ui.label(egui::RichText::new(credits.packages.iter().map(|(label,n)|format!("{label} {n}")).collect::<Vec<_>>().join(" · ")).size(11.0).color(ui.visuals().weak_text_color()));});}else if let Some(wallet)=&s.wallet{
+                        if a.provider.api_key()||a.provider==Provider::Doubao{ui.label(snapshot_details(s,locale));}else if let Some(credits)=&s.credits{ui.horizontal_wrapped(|ui|{ui.label(egui::RichText::new(locale.text("可用积分")).size(11.0).color(ui.visuals().weak_text_color()));ui.label(egui::RichText::new(credits.full()).size(20.0).strong());ui.label(egui::RichText::new(credits.packages.iter().map(|(label,n)|format!("{label} {n}")).collect::<Vec<_>>().join(" · ")).size(11.0).color(ui.visuals().weak_text_color()));});}else if let Some(wallet)=&s.wallet{
                             ui.horizontal_wrapped(|ui|{
                                 ui.label(egui::RichText::new(if wallet.available{locale.text("可用余额")}else{locale.text("余额不可用")}).size(11.0).color(ui.visuals().weak_text_color()));
                                 ui.label(egui::RichText::new(wallet.primary().full(wallet.primary().total)).size(20.0).strong());
@@ -630,8 +629,8 @@ impl App {
                         }else if a.provider==Provider::ZCode && s.windows.is_empty(){
                             ui.label(locale.text("已连接 · 暂无体验额度"));
                         }else if let Some(details)=&s.kiro{
-                            if details.pools.len()>1{if let Some(window)=s.windows.first(){ui.label(format!("{}：{} 点",window.label,window.value_text()));}}
-                            ui.label(egui::RichText::new(kiro_details(s)).size(11.0));
+                            if details.pools.len()>1{if let Some(window)=s.windows.first(){ui.label(locale.format("{0}：{1} 点{2}",&[("0",locale.status(&window.label)),("1",window.value_text()),("2",String::new())]));}}
+                            ui.label(egui::RichText::new(kiro_details(s,locale)).size(11.0));
                         }else{
                             let windows=s.rings();let count=windows.len().max(1);let width=(ui.available_width()-12.0*(count-1) as f32)/count as f32;
                             ui.horizontal_top(|ui|{ui.spacing_mut().item_spacing.x=12.0;for window in windows{ui.allocate_ui_with_layout(egui::vec2(width,30.0),egui::Layout::top_down(egui::Align::Min),|ui|{
@@ -726,7 +725,7 @@ impl App {
                 ui.label(if custom{locale.text("查询脚本和凭据由 Windows 加密保存在本机。")}else{locale.text("仅查询额度；凭据保存在 Windows 凭据管理器，不写入配置或缓存。")});
                 ui.add_enabled_ui(self.quota.api_connecting.is_none(),|ui|{
                     if provider.relay(){
-                        if self.quota.connect_target.is_some(){ui.label(format!("使用已保存的 {} 接口",provider.name()));}
+                        if self.quota.connect_target.is_some(){ui.label(locale.format("使用已保存的 {0} 接口",&[("0",locale.text(provider.name()).into())]));}
                         else if !self.quota.relay_manual&&!user_token{ui.label(locale.text("自动识别站点类型"));}
                         ui.label(if custom{locale.text("支持粘贴 CC Switch 的 request / extractor 查询脚本。")}else if user_token{locale.text("填写 New API 站点个人设置中的 Access Token 和用户 ID，查询账户余额。")}else{locale.text("填写站点网站地址和 API Key，读取站点提供的额度。")});
                         ui.add_sized([ui.available_width(),27.0],egui::TextEdit::singleline(&mut self.quota.source).hint_text(locale.text("https://你的站点地址（可含子目录）")));
@@ -877,7 +876,7 @@ mod tests {
     #[test]
     fn kiro_pool_details_include_monthly_reset_and_overage_once(){
         let s=quota::parse(Provider::Kiro,&serde_json::json!({"userInfo":{"userId":"details-user"},"usageBreakdownList":[{"resourceType":"CREDIT","usageLimitWithPrecision":1000,"currentUsageWithPrecision":1080,"currentOveragesWithPrecision":80,"overageCapWithPrecision":200,"nextDateReset":1796083200_i64}],"overageConfiguration":{"overageStatus":"ENABLED"}})).unwrap();
-        let details=snapshot_details(&s);
+        let details=snapshot_details(&s,crate::i18n::Locale::ZhCn);
         assert_eq!(details.matches("月度额度").count(),1);
         assert!(details.contains("超额上限余量：120 / 200 点"));
         assert!(details.contains("重置"));
@@ -885,7 +884,7 @@ mod tests {
     #[test] fn api_details_include_third_window_tools_and_resets(){
         let w=|label:&str|quota::Window{label:label.into(),seconds:None,remaining:0.0,reset:Some(4102444800),amount:None};
         let snapshot=Snapshot{windows:vec![w("滚动"),w("本周"),w("本月")],extra:vec![w("工具额度")],..Default::default()};
-        let detail=snapshot_details(&snapshot);for label in ["滚动","本周","本月","工具额度"]{assert!(detail.contains(label));}assert!(detail.contains("重置"));
+        let detail=snapshot_details(&snapshot,crate::i18n::Locale::ZhCn);for label in ["滚动","本周","本月","工具额度"]{assert!(detail.contains(label));}assert!(detail.contains("重置"));
     }
     #[test]
     fn claude_local_quota_displays_only_recorded_reset_times(){
@@ -1099,7 +1098,7 @@ impl App {
                 let size=[9.5,8.5,7.5].into_iter().find(|&size|c.text_w(&short,size,W::Bold)<=34.0).unwrap_or(7.5);
                 let shown=c.fit(&short,size,W::Bold,34.0);
                 c.text(cx,mid+15.0,&shown,size,W::Bold,color,H::Center);
-                summary=format!("{} {text}",if a.provider.relay(){"额度"}else{"余额"});
+                summary=format!("{} {text}",locale.text(if a.provider.relay(){"额度"}else{"余额"}));
             }else if loading{
                 let active=(self.t*3.0) as usize%3;
                 for dot in 0..3{c.circle(cx-5.0+dot as f32*5.0,mid+11.0,1.5,theme::GRAY.gamma_multiply(if dot==active{1.0}else{0.35}));}
@@ -1110,7 +1109,7 @@ impl App {
             ring(c,&a,snapshot.as_ref(),cx,mid,26.0,accent_colors(&self.quota.config,&a));
             let mut same=self.quota.config.accounts.iter().filter(|other|other.provider==a.provider && other.enabled);
             if same.clone().count()>1{let n=same.position(|other|other.id==a.id).unwrap_or(0)+1;c.circle(cx+10.0,mid+9.0,4.5,Color32::from_gray(225));c.text(cx+10.0,mid+11.8,&n.to_string(),6.5,W::Bold,Color32::BLACK,H::Center);}
-            summary=snapshot.as_ref().map(|s|s.rings().iter().map(|w|w.summary()).collect::<Vec<_>>().join(" · ")).unwrap_or_else(||if self.quota.busy.contains(&a.id){"正在更新".into()}else{"额度暂不可用".into()});
+            summary=snapshot.as_ref().map(|s|s.rings().iter().map(|w|locale.format("{0}  剩余 {1}",&[("0",locale.status(&w.label)),("1",w.value_text())])).collect::<Vec<_>>().join(" · ")).unwrap_or_else(||locale.text(if self.quota.busy.contains(&a.id){"正在更新"}else{"额度暂不可用"}).into());
         }
         let hit=c.hit(cx-17.0,mid-height/2.0,34.0,height,("quota-side",&a.id));
         if bar_tooltip(hit,format!("{} · {}\n{}",a.provider.name(),a.alias,summary)).clicked(){
