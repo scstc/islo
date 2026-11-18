@@ -266,6 +266,9 @@ impl App {
     // ================= 专注（番茄钟） =================
     pub(crate) fn page_focus(&mut self, c: &Card, _env: &Env) {
         let locale=self.settings.locale();
+        let (settings,sc)=capsule(c,86.0,6.0,50.0,24.0,"focus-settings",theme::BTN,theme::BTN_HOVER);
+        sc.centered_text(111.0,18.0,locale.text("设置"),10.0,W::Regular,theme::WHITE,H::Center);
+        if settings.clicked(){self.open_settings_category(2);}
         let (rx, ry, rr) = (112.0, 80.0, 40.0);
         let frac = self.ring_shown.pos.clamp(0.0, 1.0);
         let run = c.ui.ctx().animate_bool_with_time(egui::Id::new("pomo-run"), self.pomo.running, 0.3);

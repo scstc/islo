@@ -643,6 +643,14 @@ fn world_clock_upgrade_preserves_navigation_and_validates_saved_cities() {
         std::fs::write(&path,format!("world_clock_cities={value}\n")).unwrap();
         assert_eq!(crate::model::Settings::load().world_clock_cities,crate::world_clock::default_cities(),"损坏配置仍应有可用的城市");
     }
+    // A pre-merge islo profile already has a ninth page. Its slot belongs to World Clock.
+    std::fs::write(&path,"visible_pages=111111110\npage_order=8,0,1,2,3,4,5,6,7\n").unwrap();
+    let settings=crate::model::Settings::load();
+    assert!(!settings.visible_pages[crate::app::WORLD_CLOCK_PAGE]);
+    assert!(settings.visible_pages[crate::app::WEATHER_PAGE]);
+    assert_eq!(settings.page_order[0],crate::app::WORLD_CLOCK_PAGE);
+    assert_eq!(settings.page_order[9],crate::app::WEATHER_PAGE);
+
 }
 
 #[test]
@@ -694,7 +702,7 @@ fn world_clock_preview_pagination_and_settings_are_reachable() {
     assert_eq!(h.app.world_clock.first,0);assert!(contains(&h,"北京"));
     h.click(H::local(394.0,18.0));assert!(h.app.settings_open);assert_eq!(h.app.settings_tab,12);
     h.click(H::local(323.5,18.0));assert!(h.app.world_clock.globe_view);
-    h.click(H::local(359.5,18.0));assert!(h.app.world_clock.window_open);
+    h.click(H::local(286.5,18.0));assert!(h.app.world_clock.window_open);
 }
 
 #[test]
@@ -862,7 +870,7 @@ fn weather_content_tap_switches_both_ways_with_a_short_transition(){
 #[test]
 fn weather_content_tap_keeps_other_controls_independent(){
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
-    for (x,y,target) in [(375.0,crate::app::WEATHER_H-7.0,8),(394.0,18.0,8),(367.0,18.0,0),(398.0,88.0,0),(20.0,88.0,7)] {
+    for (x,y,target) in [(375.0,crate::app::WEATHER_H-7.0,crate::app::WEATHER_PAGE),(394.0,18.0,crate::app::WEATHER_PAGE),(367.0,18.0,0),(398.0,88.0,0),(20.0,88.0,crate::app::WORLD_CLOCK_PAGE)] {
         let mut h=H::new();h.app.settings.pet=false;
         h.media=crate::smtc::NowPlaying{source:"cloudmusic.exe".into(),title:"歌曲".into(),artist:"歌手".into(),playing:true,..Default::default()};
         h.app.weather.snapshot=Some(crate::weather::Snapshot{place:"杭州".into(),temp:19.0,..Default::default()});
@@ -1802,7 +1810,7 @@ fn glass_pill_rim_stays_on_outline_while_collapsing() {
         for frame in 0..100 {
             h.frame(vec![egui::Event::PointerGone]);
             let rims=h.shapes.iter().filter_map(|s|match &s.shape {
-                egui::Shape::Rect(r) if r.rect.width()>100.0 && r.rect.height()>=10.0=>Some((s.clone(),r.rect,if r.stroke.is_empty(){r.fill.a() as f32/255.0}else{0.0})),
+                egui::Shape::Rect(r) if r.rect.width()>100.0 && r.rect.height()>=10.0 && r.rect.top()<38.0=>Some((s.clone(),r.rect,if r.stroke.is_empty(){r.fill.a() as f32/255.0}else{0.0})),
                 _=>None,
             }).collect::<Vec<_>>();
             for (shape,rect,alpha) in rims {
@@ -3292,7 +3300,7 @@ fn wheel_navigation_reaches_every_page_in_both_directions(){
     h.app.shelf.items.clear();h.app.todos.items.clear();
     h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);
     h.hover(H::local(210.0,18.0),0.3);
-    for (delta,pages) in [(-40.0,[1,2,3,4,5,6,7,8,0]),(40.0,[8,7,6,5,4,3,2,1,0])] {
+    for (delta,pages) in [(-40.0,[1,2,3,4,5,6,7,8,9,0]),(40.0,[9,8,7,6,5,4,3,2,1,0])] {
         for page in pages {
             h.wheel(delta);
             assert_eq!(h.app.page,page,"滚轮翻页不能被空的置物架或待办卡住");
@@ -3396,10 +3404,10 @@ fn wheel_handles_small_deltas_without_skipping_pages_on_bursts(){
 }
 
 #[test]
-fn navigation_wraps_between_nine_pages_and_notification_settings_remain_accessible() {
+fn navigation_wraps_between_all_pages_and_notification_settings_remain_accessible() {
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();
-    h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);h.click(H::local(21.0,68.0));assert_eq!(h.app.page,8);
-    h.hover(H::local(300.0,60.0),0.8);h.click(H::local(398.0,68.0));assert_eq!(h.app.page,0);
+    h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);h.click(H::local(21.0,68.0));assert_eq!(h.app.page,crate::app::WEATHER_PAGE);
+    h.hover(H::local(300.0,60.0),0.8);h.click(H::local(398.0,88.0));assert_eq!(h.app.page,0);
     h.app.open_settings_category(3);assert!(h.app.settings_open);assert_eq!(h.app.settings_tab,6);
 }
 
@@ -3832,7 +3840,7 @@ fn quota_page_navigation_tracks_the_taller_panel(){
     h.app.show_page(6);h.hover(H::local(300.0,60.0),0.8);
     assert!((h.hit.height()-178.0).abs()<0.2,"额度页新增的底部空间应属于命中区域");
     let dot=h.shapes.iter().find_map(|shape|match &shape.shape{
-        egui::Shape::Rect(rect) if (rect.rect.width()-4.0).abs()<0.1&&(rect.rect.height()-4.0).abs()<0.1&&(rect.rect.center().y-168.8).abs()<0.1=>Some(rect.rect.center()),_=>None,
+        egui::Shape::Rect(rect) if (rect.rect.width()-4.0).abs()<0.1&&(rect.rect.height()-5.0).abs()<0.1&&(rect.rect.center().y-H::local(0.0,h.app.expanded_height()-22.0).y).abs()<0.1=>Some(rect.rect.center()),_=>None,
     }).expect("分页圆点应随加高的面板下移");
     h.click(dot);assert_ne!(h.app.page,6,"新增底部区域中的分页应可点击");
     h.app.show_page(6);h.hover(H::local(300.0,60.0),0.8);
@@ -3956,14 +3964,14 @@ fn battery_module_can_disable_only_the_power_warning() {
 fn page_visibility_skips_hidden_pages_in_every_navigation_control() {
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
     let mut h=H::new();
-    for page in [1,3,4,6,7,8] {h.app.set_page_visible(page,false);}
+    for page in [1,3,4,6,7,8,crate::app::WEATHER_PAGE] {h.app.set_page_visible(page,false);}
     h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);
     for expected in [2,5,0] {
         h.click(H::local(398.0,68.0));
         assert_eq!(h.app.page,expected);
         h.hover(H::local(300.0,60.0),0.7);
     }
-    h.click(H::local(PW/2.0+6.0,132.8));
+    h.click(H::local(PW/2.0+6.0,PH-22.0));
     assert_eq!(h.app.page,2,"底部圆点应仅包含启用的页面");
     h.hover(H::local(300.0,60.0),0.7);
     h.frame(vec![egui::Event::Key{key:egui::Key::ArrowRight,physical_key:None,pressed:true,repeat:false,modifiers:Default::default()}]);
@@ -3985,7 +3993,7 @@ fn page_visibility_moves_away_from_hidden_page_and_keeps_one_page() {
     h.app.set_page_visible(4,false);
     assert_eq!(h.app.page,0);
     assert!(!h.app.is_editing());
-    for page in [0,1,3,5,6,7,8] {h.app.set_page_visible(page,false);}
+    for page in [0,1,3,5,6,7,8,crate::app::WEATHER_PAGE] {h.app.set_page_visible(page,false);}
     assert_eq!(h.app.page,2);
     h.app.set_page_visible(2,false);
     assert!(h.app.settings.visible_pages[2],"不能关闭最后一个页面");
@@ -4527,7 +4535,8 @@ fn mascot_feedback_plays_beside_notice_and_respects_switches(){
     h.app.drink_water();h.app.alert("待办到时间了","测试提醒",4,false);
     for _ in 0..60 {h.frame(vec![]);}assert_eq!(h.app.pet_state(),PetState::Satisfied);
     assert!(h.app.notice.is_some());
-    assert!(h.shapes.iter().filter(|s|matches!(&s.shape,egui::Shape::Path(p) if p.points.len()==13 && (p.stroke.width-3.6).abs()<0.01)).count()>=2,"通知期间islo仍应可见");
+    let atlas=h.ctx.tex_manager().read().allocated().find_map(|(id,meta)|(meta.name=="daozai-expressions").then_some(*id)).expect("表情图集已加载");
+    assert!(h.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Mesh(mesh) if mesh.texture_id==atlas)),"通知期间吉祥物仍应可见");
     for _ in 0..240 {h.frame(vec![]);}assert_eq!(h.app.pet_state(),PetState::Awake);
     h.app.notice=None;for _ in 0..240 {h.frame(vec![]);}assert_eq!(h.app.pet_state(),PetState::Awake);
     h.app.drink_water();h.app.settings.minimal=true;h.frame(vec![]);assert!(h.app.pet.reaction.is_none());
@@ -4912,7 +4921,7 @@ fn focus_timer_gets_room_in_the_collapsed_island(){
 fn switching_to_rest_waits_for_the_start_button(){
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());let mut h=H::new();
     h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);h.app.go(1,1.0);h.hover(H::local(260.0,70.0),1.0);
-    h.click(H::local(296.0,106.5));
+    h.click(H::local(320.0,57.0));
     assert!(h.app.pomo.phase==crate::app::Phase::Rest);
     assert!(!h.app.pomo.running,"切换阶段应等待用户点击开始");
 }
@@ -6738,7 +6747,7 @@ fn page_order_persists_and_controls_navigation() {
     assert_eq!(settings.page_order,[5,2,0,1,3,4,6,7,8,9]);
     let restarted=App::new(&h.ctx,Options{fetch_lyrics:false,pet_idle:1e9});
     assert_eq!(restarted.page(),5);
-    for page in [1,3,4,6,7,8] {h.app.set_page_visible(page,false);}
+    for page in [1,3,4,6,7,8,crate::app::WEATHER_PAGE] {h.app.set_page_visible(page,false);}
     h.hover(Pos2::new(WIN_W/2.0,12.0),1.0);
     for expected in [5,2,0] {
         h.click(H::local(398.0,68.0));
@@ -6800,7 +6809,7 @@ fn settings_theme_follows_system_and_preserves_island_style() {
         let output=std::sync::Arc::new(std::sync::Mutex::new(None));let capture=output.clone();
         egui::Context::set_immediate_viewport_renderer(move|ctx,mut viewport|{
             let id=viewport.ids.this;
-            let raw=egui::RawInput{viewport_id:id,screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(690.0,1240.0))),
+            let raw=egui::RawInput{viewport_id:id,screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(690.0,1850.0))),
                 viewports:std::iter::once((id,egui::ViewportInfo{native_pixels_per_point:Some(1.0),..Default::default()})).collect(),..Default::default()};
             *capture.lock().unwrap()=Some(ctx.run(raw,|ctx|(viewport.viewport_ui_cb)(ctx)));
         });

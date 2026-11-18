@@ -90,6 +90,7 @@ impl App {
         let Some(d)=self.calendar.draft.as_mut() else{return;};
         let accent=Color32::from_rgb(82,162,255);
         c.centered_text(43.0,20.0,if d.uid.is_some(){locale.text("编辑日程")}else{locale.text("新建日程")},13.0,W::Semibold,theme::WHITE,H::Left);
+        c.centered_text(370.0,20.0,locale.text("仅保存在本机"),9.0,W::Regular,theme::GRAY,H::Right);
         for (label,y) in [(locale.text("名称"),49.0),(locale.text("开始"),82.0),(locale.text("结束"),114.0),(locale.text("提醒"),147.0)]{c.centered_text(43.0,y,label,10.0,W::Regular,theme::GRAY,H::Left);}
         for (x,y,w) in [(86.0,38.0,284.0),(86.0,71.0,120.0),(86.0,103.0,120.0)]{c.fill(x,y,w,23.0,6.0,theme::CARD);}
         if !d.all_day {for y in [71.0,103.0]{c.fill(214.0,y,66.0,23.0,6.0,theme::CARD);}}
@@ -116,7 +117,7 @@ impl App {
         let (cancel,b)=paint::capsule(c,224.0,188.0,64.0,22.0,"calendar-editor-cancel",theme::BTN,theme::BTN_HOVER);
         b.centered_text(256.0,199.0,locale.text("取消"),10.0,W::Regular,theme::WHITE,H::Center);
         let (save,b)=paint::capsule(c,298.0,188.0,72.0,22.0,"calendar-editor-save",accent,Color32::from_rgb(110,180,255));
-        b.centered_text(334.0,199.0,locale.text("保存"),10.0,W::Semibold,theme::WHITE,H::Center);
+        b.centered_text(334.0,199.0,locale.text("保存到本机"),10.0,W::Semibold,theme::WHITE,H::Center);
         if delete{self.delete_calendar_editor();}else if cancel.clicked(){self.calendar.draft=None;}else if save.clicked(){self.save_calendar_editor();}
     }
     pub(crate) fn calendar_editor_inputs(&mut self,ui:&mut egui::Ui,origin:egui::Pos2,cmds:&mut Vec<Cmd>){

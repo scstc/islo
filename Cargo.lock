@@ -1376,7 +1376,7 @@ dependencies = [
 
 [[package]]
 name = "islo"
-version = "26.4.3"
+version = "26.4.4"
 dependencies = [
  "base64 0.22.1",
  "chrono",

@@ -53,7 +53,7 @@ fn draw(h:&mut H,events:Vec<egui::Event>,size:Vec2,scale:f32)->(egui::FullOutput
     });
     let root=h.ctx.run(egui::RawInput{time:Some(time),..Default::default()},|ctx|h.app.settings_ui(ctx,false));
     let child_frames=std::mem::take(&mut *children.lock().unwrap());
-    h.shapes=child_frames.iter().find(|(id,_)|*id==egui::ViewportId::from_hash_of("daozai-settings")).unwrap().1.shapes.clone();
+    h.shapes=child_frames.iter().find(|(id,_)|*id==egui::ViewportId::from_hash_of("islo-settings")).unwrap().1.shapes.clone();
     (root,child_frames)
 }
 
@@ -272,7 +272,7 @@ fn qweather_frontend_gallery(){
             if end&&frame==2{events.push(egui::Event::MouseWheel{unit:egui::MouseWheelUnit::Point,delta:egui::vec2(0.0,-10000.0),modifiers:Default::default()});}
             let (root,children)=draw(&mut h,events,size,scale);raster.update_textures(&root.textures_delta);
             for (_,out) in &children{raster.update_textures(&out.textures_delta);}
-            let id=egui::ViewportId::from_hash_of(if help{"daozai-weather-tutorial"}else{"daozai-settings"});
+            let id=egui::ViewportId::from_hash_of(if help{"daozai-weather-tutorial"}else{"islo-settings"});
             let out=&children.iter().find(|(child,_)|*child==id).unwrap().1;
             if frame==frames-1{
                 raster.buf.fill([0.10,0.10,0.11,1.0]);raster.draw(&h.ctx.tessellate(out.shapes.clone(),out.pixels_per_point),out.pixels_per_point);

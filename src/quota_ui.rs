@@ -254,9 +254,10 @@ fn quota_reset_text(snapshot:&Snapshot,window:&quota::Window,now:&chrono::DateTi
     reset_text(window.reset,now,locale)
 }
 fn claude_disclaimer(ui:&mut egui::Ui){
+    let locale=crate::i18n::locale(ui.ctx());
     ui.separator();
-    ui.label(egui::RichText::new("免责声明").size(12.0).strong());
-    ui.add(egui::Label::new(egui::RichText::new("岛仔为非官方辅助工具，数据仅供参考，以 Claude 官方显示为准；本地读取不构成账号安全保证。").size(12.0).color(crate::settings_theme::color(ui.ctx(),Color32::from_gray(180),Color32::from_gray(75)))).wrap());
+    ui.label(egui::RichText::new(locale.text("免责声明")).size(12.0).strong());
+    ui.add(egui::Label::new(egui::RichText::new(locale.text("岛仔为非官方辅助工具，数据仅供参考，以 Claude 官方显示为准；本地读取不构成账号安全保证。")).size(12.0).color(crate::settings_theme::color(ui.ctx(),Color32::from_gray(180),Color32::from_gray(75)))).wrap());
 }
 impl App {
     pub(crate) fn quota_close_connection(&mut self){
@@ -410,7 +411,7 @@ impl App {
             let mut same=self.quota.config.accounts.iter().filter(|other|other.provider==a.provider && other.enabled);
             if same.clone().count()>1{let n=same.position(|other|other.id==a.id).unwrap_or(0)+1;c.circle(x+10.0,24.0,4.5,Color32::from_gray(225));c.text(x+10.0,26.8,&n.to_string(),6.5,W::Bold,Color32::BLACK,H::Center);}
             let summary=snapshot.map(|s|s.rings().iter().map(|w|locale.format("{0}剩余 {1}%",&[("0",format!("{}",locale.status(&w.label))),("1",format!("{:.0}",w.remaining))])).collect::<Vec<_>>().join(" · ")).unwrap_or_else(||if self.quota.busy.contains(&a.id){locale.text("正在更新").into()}else{locale.text("额度暂不可用").into()});
-            if bar_tooltip(c.hit(x-14.0,1.0,28.0,28.0,("quota-pin",&a.id)),format!("{} · {}\n{}",a.provider.name(),a.alias,summary)).clicked(){chosen=Some(a.id.clone());}
+            if bar_tooltip(c.hit(x-14.0,1.0,28.0+extra,28.0,("quota-pin",&a.id)),format!("{} · {}\n{}",a.provider.name(),a.alias,summary)).clicked(){chosen=Some(a.id.clone());}
         }
         if let Some(id)=chosen{self.quota.config.selected=id;self.quota.config.save();self.show_page(6);}
     }
@@ -610,11 +611,11 @@ impl App {
                         ui.add(egui::Label::new("::").sense(egui::Sense::drag())).on_hover_text(locale.text("拖动调整账号顺序")).dnd_set_drag_payload(a.id.clone());
                         let (rect,_)=ui.allocate_exact_size(egui::vec2(26.0,28.0),egui::Sense::hover());let c=Card::new(ui,rect.min,ui.clip_rect());
                         if a.provider==Provider::DeepSeek{deepseek_badge(&c,if ui.visuals().dark_mode{crate::model::Skin::Classic}else{crate::model::Skin::GlassLight},13.0,14.0,26.0);}else if matches!(a.provider,Provider::ZCode|Provider::Kiro){logo(&c,a.provider,13.0,14.0,26.0);}else{c.circle(13.0,14.0,13.0,crate::paint::mix(accent_colors(&self.quota.config,&a)[0],Color32::BLACK,0.75));logo(&c,a.provider,13.0,14.0,20.0);}
-                        ui.label(egui::RichText::new(if a.provider.relay(){locale.text("中转站")}else{a.provider.name()}).strong());
+                        ui.label(egui::RichText::new(if a.provider.relay(){locale.text("中转站")}else{locale.text(a.provider.name())}).strong());
                         // 从右往左排：按钮先靠右放好，名称输入框占用剩余宽度，按钮再宽也不会顶出卡片。
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{
                             if ui.add_enabled(self.quota.api_connecting.is_none()&&self.quota.workbuddy_connecting.is_none()&&self.quota.deepseek_connecting.is_none()&&self.quota.gemini_connecting.is_none()&&self.quota.doubao_connecting.is_none()&&self.quota.login.is_none(),egui::Button::new(locale.text("移除"))).clicked(){remove=Some(a.id.clone());}
-                            if ui.selectable_label(self.quota.config.selected==a.id,"当前").clicked(){self.quota.config.selected=a.id.clone();}
+                            if ui.selectable_label(self.quota.config.selected==a.id,locale.text("当前")).clicked(){self.quota.config.selected=a.id.clone();}
                             ui.add_sized([ui.available_width().max(55.0),26.0],egui::TextEdit::singleline(&mut a.alias).hint_text(locale.text("账号名称"))).on_hover_text(locale.text("直接修改账号名称"));
                         });
                     });
@@ -634,7 +635,7 @@ impl App {
                         }else{
                             let windows=s.rings();let count=windows.len().max(1);let width=(ui.available_width()-12.0*(count-1) as f32)/count as f32;
                             ui.horizontal_top(|ui|{ui.spacing_mut().item_spacing.x=12.0;for window in windows{ui.allocate_ui_with_layout(egui::vec2(width,30.0),egui::Layout::top_down(egui::Align::Min),|ui|{
-                                ui.horizontal(|ui|{ui.label(egui::RichText::new(format!("{}  剩余 {}",window.label,window.value_text())).size(11.0));});
+                                ui.horizontal(|ui|{ui.label(egui::RichText::new(locale.format("{0}  剩余 {1}",&[("0",locale.status(&window.label)),("1",window.value_text())])).size(11.0));});
                                 ui.add(egui::ProgressBar::new((window.remaining/100.0).clamp(0.0,1.0)).desired_width(width).desired_height(3.0).fill(accent_colors(&self.quota.config,&a)[0]));
                             });}});
                         }
@@ -654,7 +655,7 @@ impl App {
                     }
                     if a.provider==Provider::Claude{
                         ui.separator();ui.label(egui::RichText::new(locale.text("本地读取说明")).size(12.0).strong());
-                        ui.add(egui::Label::new(egui::RichText::new(CLAUDE_LOCAL_NOTICE).size(12.0).color(crate::settings_theme::color(ui.ctx(),Color32::from_gray(180),Color32::from_gray(75)))).wrap());
+                        ui.add(egui::Label::new(egui::RichText::new(locale.text(CLAUDE_LOCAL_NOTICE)).size(12.0).color(crate::settings_theme::color(ui.ctx(),Color32::from_gray(180),Color32::from_gray(75)))).wrap());
                         claude_disclaimer(ui);
                     }
                 });
@@ -684,8 +685,8 @@ impl App {
             let previous_provider=self.quota.provider;
             let mut group=connection_group(self.quota.provider);
             ui.add_enabled_ui(self.quota.connect_target.is_none()&&self.quota.api_connecting.is_none()&&self.quota.kiro_connecting.is_none()&&self.quota.workbuddy_connecting.is_none()&&self.quota.deepseek_connecting.is_none()&&self.quota.gemini_connecting.is_none()&&self.quota.doubao_connecting.is_none()&&self.quota.login.is_none(),|ui|{
-                settings_control_row(ui,locale.text("服务"),56.0,|ui|{egui::ComboBox::from_id_salt("quota-provider").selected_text(connection_name(group)).show_ui(ui,|ui|{
-                    for p in Provider::ALL.into_iter().filter(|p|connection_group(*p)==*p){ui.selectable_value(&mut group,p,connection_name(p));}
+                settings_control_row(ui,locale.text("服务"),56.0,|ui|{egui::ComboBox::from_id_salt("quota-provider").selected_text(locale.text(connection_name(group))).show_ui(ui,|ui|{
+                    for p in Provider::ALL.into_iter().filter(|p|connection_group(*p)==*p){ui.selectable_value(&mut group,p,locale.text(connection_name(p)));}
                 }).response});
             });
             if group!=connection_group(previous_provider){self.quota.provider=group;}
@@ -695,10 +696,10 @@ impl App {
                     ui.horizontal(|ui|{ui.label(locale.text("连接方式"));ui.selectable_value(&mut use_key,false,locale.text("本机 ZCode"));ui.selectable_value(&mut use_key,true,locale.text("套餐 API Key"));});
                     self.quota.provider=if use_key{Provider::Glm}else{Provider::ZCode};
                 }else if group==Provider::NewApi&&!self.quota.relay_user_token{
-                    ui.collapsing("高级设置",|ui|{
+                    ui.collapsing(locale.text("高级设置"),|ui|{
                         settings_control_row(ui,locale.text("站点类型"),76.0,|ui|{egui::ComboBox::from_id_salt("relay-protocol").selected_text(if self.quota.relay_manual{self.quota.provider.name()}else{locale.text("自动识别（推荐）")}).show_ui(ui,|ui|{
                             ui.selectable_value(&mut self.quota.relay_manual,false,"自动识别（推荐）");
-                            for p in [Provider::RelayGeneral,Provider::NewApi,Provider::Sub2Api,Provider::RelayCustom,Provider::OneApi]{if ui.selectable_label(self.quota.relay_manual&&self.quota.provider==p,p.name()).clicked(){self.quota.relay_manual=true;self.quota.provider=p;}}
+                            for p in [Provider::RelayGeneral,Provider::NewApi,Provider::Sub2Api,Provider::RelayCustom,Provider::OneApi]{if ui.selectable_label(self.quota.relay_manual&&self.quota.provider==p,locale.text(p.name())).clicked(){self.quota.relay_manual=true;self.quota.provider=p;}}
                         }).response});
                     });
                 }
@@ -743,7 +744,7 @@ impl App {
                     }else{ui.label(locale.text("查询 OpenCode Go 套餐使用率，不查询 Zen 按量余额。"));}
                     ui.add_sized([ui.available_width(),27.0],egui::TextEdit::singleline(&mut self.quota.api_key).password(true).hint_text(if custom{locale.text("API Key（脚本需要时填写）")}else if user_token{locale.text("粘贴用户 Access Token（非 API Key）")}else{locale.text("粘贴 API Key")}));
                     if custom{
-                        ui.collapsing("其他脚本变量（可选）",|ui|{
+                        ui.collapsing(locale.text("其他脚本变量（可选）"),|ui|{
                             ui.add_sized([ui.available_width(),27.0],egui::TextEdit::singleline(&mut self.quota.relay_access_token).password(true).hint_text("Access Token"));
                             ui.add_sized([ui.available_width(),27.0],egui::TextEdit::singleline(&mut self.quota.relay_user_id).hint_text(locale.text("用户 ID")));
                         });
@@ -781,7 +782,7 @@ impl App {
                 ui.horizontal_wrapped(|ui|{ui.label(locale.text("首次在 Chrome 开启原生连接："));ui.code("chrome://inspect/#remote-debugging");if ui.small_button(locale.text("复制地址")).clicked(){ui.ctx().copy_text("chrome://inspect/#remote-debugging".into());}});
                 ui.add(egui::Label::new(egui::RichText::new(locale.text("Chrome 会请求浏览器会话访问权限。岛仔仅在连接时读取 Gemini 登录，完成后断开，后续使用本机加密会话刷新。")).size(11.0).color(ui.visuals().weak_text_color())).wrap());
                 settings_control_row(ui,locale.text("Google 邮箱"),80.0,|ui|{ui.add_sized([ui.available_width(),27.0],egui::TextEdit::singleline(&mut self.quota.gemini_email).vertical_align(egui::Align::Center).hint_text(locale.text("可选：指定要连接的 Google 邮箱")))});
-                ui.collapsing("高级：手动 Cookie 连接",|ui|{
+                ui.collapsing(locale.text("高级：手动 Cookie 连接"),|ui|{
                     ui.label(locale.text("在 Gemini 用量页按 F12，打开网络，刷新后找到 executeQuery 请求，复制 Cookie 请求头。"));
                     ui.add_sized([ui.available_width(),27.0],egui::TextEdit::singleline(&mut self.quota.gemini_cookie).vertical_align(egui::Align::Center).password(true).hint_text(locale.text("粘贴 Cookie 请求头")));
                     if ui.add_enabled(self.quota.gemini_connecting.is_none() && !self.quota.gemini_cookie.trim().is_empty()&&!self.quota.gemini_email.trim().is_empty(),egui::Button::new(locale.text("验证并连接"))).clicked(){self.quota.note.clear();self.quota.gemini_connecting=Some(quota::gemini::Connect::start(self.quota.alias.clone(),self.quota.gemini_email.clone(),Some(std::mem::take(&mut self.quota.gemini_cookie)),self.quota.connect_target.as_ref().and_then(|id|self.quota.config.accounts.iter().find(|a|&a.id==id)).and_then(|a|a.slot.clone())));}
@@ -800,7 +801,7 @@ impl App {
                     if ui.button(locale.text("打开豆包额度")).clicked(){self.pending.push(Cmd::OpenUrl("https://www.doubao.com/member/quota-management".into()));}
                 });
                 ui.add(egui::Label::new(locale.text("无需浏览器扩展，在独立窗口完成豆包官网登录。也可导入本机豆包客户端当前账号；登录状态加密保存在本机。")).wrap());
-                ui.collapsing("使用 Cookie 连接",|ui|{
+                ui.collapsing(locale.text("使用 Cookie 连接"),|ui|{
                     ui.label(locale.text("在豆包网页按 F12，打开网络，复制额度请求的完整 Cookie 请求头。"));
                     ui.add_sized([ui.available_width(),27.0],egui::TextEdit::singleline(&mut self.quota.doubao_cookie).password(true).hint_text(locale.text("粘贴 Cookie 请求头")));
                     if ui.add_enabled(self.quota.doubao_connecting.is_none()&&!self.quota.doubao_cookie.trim().is_empty(),egui::Button::new(locale.text("验证并连接"))).clicked(){
@@ -822,16 +823,16 @@ impl App {
                 if ui.button(locale.text("连接本机 ZCode")).clicked(){self.quota.note=match quota::zcode::path().ok_or_else(||locale.text("未找到 ZCode 登录目录").to_owned()).and_then(|p|quota::zcode::add(&mut self.quota.config,&p,&self.quota.alias)){Ok(())=>locale.text("ZCode 已连接").into(),Err(e)=>e};}
             }else if self.quota.provider==Provider::Kiro{
                 if ui.add_enabled(self.quota.kiro_connecting.is_none(),egui::Button::new(locale.text("连接本机 Kiro"))).clicked(){match quota::kiro::path(){Some(path)=>self.quota_start_kiro(path),None=>self.quota.note="未找到 Kiro 登录目录".into()}}
-                ui.collapsing("导入其他登录文件",|ui|{self.quota_file_form(ui);});
+                ui.collapsing(locale.text("导入其他登录文件"),|ui|{self.quota_file_form(ui);});
                 ui.label(egui::RichText::new(locale.text("只读识别 Kiro 登录缓存，核验用户后显示套餐、有效试用和赠送 / 加购点数；超额上限单独显示。不自动续期，登录过期时请在 Kiro 中重新登录。")).size(12.0).color(crate::settings_theme::color(ui.ctx(),Color32::from_gray(180),Color32::from_gray(75))));
             }else if self.quota.provider==Provider::Claude{
-                ui.add(egui::Label::new(CLAUDE_LOCAL_NOTICE).wrap());
+                ui.add(egui::Label::new(locale.text(CLAUDE_LOCAL_NOTICE)).wrap());
                 ui.horizontal(|ui|{
                     if ui.button(locale.text("读取桌面版本地记录")).clicked(){self.quota.note=match self.quota.config.connect_claude_desktop(&self.quota.alias){Ok(_)=>{self.pending.push(Cmd::QuotaConnected);"已连接，数据随 Claude 桌面版使用更新".into()},Err(e)=>e};}
                     if ui.button(locale.text("启用 Code 本地采集")).clicked(){self.quota.note=match self.quota.config.connect_claude_code(&self.quota.alias){Ok(_)=>{self.pending.push(Cmd::QuotaConnected);"本地采集已启用，使用 Claude Code 后更新".into()},Err(e)=>e};}
                 });
                 for text in [locale.text("桌面版自动从本地用量缓存读取重置时间；缓存不可用时显示未知，额度仍以本地记录为准。"),locale.text("Code 本地采集会配置官方状态栏输出，已有状态栏不会被覆盖。仅使用网页版时，暂无可读取的本机记录。")]{ui.add(egui::Label::new(egui::RichText::new(text).size(12.0).color(ui.visuals().weak_text_color())).wrap());}
-                ui.collapsing("选择本地用量 JSON",|ui|{self.quota_file_form(ui);});
+                ui.collapsing(locale.text("选择本地用量 JSON"),|ui|{self.quota_file_form(ui);});
                 claude_disclaimer(ui);
             }else{
                 self.quota_file_form(ui);
@@ -854,11 +855,12 @@ impl App {
         if !open{self.quota_close_connection();}
     }
     fn quota_file_form(&mut self,ui:&mut egui::Ui){
+        let locale=self.settings.locale();
         let local=self.quota.provider==Provider::Claude;
-        ui.label(if local{"本地用量 JSON 文件"}else{"登录 JSON 文件"});ui.horizontal(|ui|{ui.add_sized([(ui.available_width()-65.0).max(100.0),27.0],egui::TextEdit::singleline(&mut self.quota.source).vertical_align(egui::Align::Center).hint_text(if local{"选择 Claude 本地用量记录"}else{"选择该账号的登录文件"}));if ui.button("选择…").clicked(){self.pending.push(Cmd::QuotaChooseFile);}});
+        ui.label(locale.text(if local{"本地用量 JSON 文件"}else{"登录 JSON 文件"}));ui.horizontal(|ui|{ui.add_sized([(ui.available_width()-65.0).max(100.0),27.0],egui::TextEdit::singleline(&mut self.quota.source).vertical_align(egui::Align::Center).hint_text(locale.text(if local{"选择 Claude 本地用量记录"}else{"选择该账号的登录文件"})));if ui.button(locale.text("选择…")).clicked(){self.pending.push(Cmd::QuotaChooseFile);}});
         if self.quota.provider==Provider::Kiro{
-            if ui.add_enabled(self.quota.kiro_connecting.is_none()&&!self.quota.source.trim().is_empty(),egui::Button::new("验证并连接")).clicked(){self.quota_start_kiro(self.quota.source.trim().into());}
-        }else if ui.button("添加账号").clicked(){match self.quota.config.add(self.quota.provider,self.quota.alias.clone(),self.quota.source.trim().into()){Ok(())=>{self.quota.alias.clear();self.quota.source.clear();self.quota.note="账号已添加".into();},Err(e)=>self.quota.note=e}}
+            if ui.add_enabled(self.quota.kiro_connecting.is_none()&&!self.quota.source.trim().is_empty(),egui::Button::new(locale.text("验证并连接"))).clicked(){self.quota_start_kiro(self.quota.source.trim().into());}
+        }else if ui.button(locale.text("添加账号")).clicked(){match self.quota.config.add(self.quota.provider,self.quota.alias.clone(),self.quota.source.trim().into()){Ok(())=>{self.quota.alias.clear();self.quota.source.clear();self.quota.note="账号已添加".into();},Err(e)=>self.quota.note=e}}
     }
     #[cfg(feature="record")]
     pub fn quota_demo(&mut self,mode:&str){

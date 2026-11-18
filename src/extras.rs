@@ -454,7 +454,7 @@ impl App {
             nc.circle(31.0,14.0,2.6,Color32::from_rgb(255,72,72));
             nc.centered_text(44.0,14.0,locale.text(&a.title),11.0,W::Semibold,theme::WHITE,H::Left);
             nc.centered_text(44.0,30.0,&nc.fit(&locale.text(&a.body),10.5,W::Regular,154.0),10.5,W::Regular,theme::GRAY,H::Left);
-            if notice_button(&nc,206.0,12.0,52.0,locale.text("查看"),"messenger-view"){_cmds.push(Cmd::ViewMessenger(self.latest_unread(source)));}
+            if notice_button(&nc,206.0,12.0,52.0,locale.text("查看"),"messenger-view"){_cmds.push(Cmd::ViewMessenger(a.unread.unwrap_or_else(||self.latest_unread(source))));}
             if notice_button(&nc,265.0,12.0,52.0,locale.text("关闭"),"messenger-dismiss"){
                 if source.adapter().dismiss_unread{if let Some(unread)=a.unread{self.discard_unread(unread);}}
                 self.notice=None;self.notification_bell_until=0.0;
@@ -549,14 +549,14 @@ impl App {
             let is_sit=a.health()==Some(HealthReminder::Sit);let is_water=a.health()==Some(HealthReminder::Water);let is_focus=a.page==1;let is_power=a.title=="电量偏低";
             notice_icon(&nc,22.0,22.0,a);
             let max=if is_water||is_sit{125.0}else{195.0};
-            nc.centered_text(43.0,14.0,&nc.fit(&a.title,11.0,W::Semibold,max),11.0,W::Semibold,theme::WHITE,H::Left);
-            nc.centered_text(43.0,30.0,&nc.fit(&a.body,10.5,W::Regular,max),10.5,W::Regular,theme::GRAY,H::Left);
+            nc.centered_text(43.0,14.0,&nc.fit(locale.text(&a.title),11.0,W::Semibold,max),11.0,W::Semibold,theme::WHITE,H::Left);
+            nc.centered_text(43.0,30.0,&nc.fit(locale.text(&a.body),10.5,W::Regular,max),10.5,W::Regular,theme::GRAY,H::Left);
             if is_sit {
-                if notice_button(&nc,181.0,12.0,62.0,"知道了","sit-confirm-read"){self.confirm_health_reminder(HealthReminder::Sit);}
-                if notice_button(&nc,250.0,12.0,68.0,"起身了","sit-confirm"){self.notice=None;self.stood_up();}
+                if notice_button(&nc,181.0,12.0,62.0,locale.text("知道了"),"sit-confirm-read"){self.confirm_health_reminder(HealthReminder::Sit);}
+                if notice_button(&nc,250.0,12.0,68.0,locale.text("起身了"),"sit-confirm"){self.notice=None;self.stood_up();}
             }else if is_water {
-                if notice_button(&nc,181.0,12.0,62.0,"知道了","water-confirm-read"){self.confirm_health_reminder(HealthReminder::Water);}
-                if notice_button(&nc,250.0,12.0,68.0,"喝一口","water-confirm"){self.notice=None;self.drink_water();}
+                if notice_button(&nc,181.0,12.0,62.0,locale.text("知道了"),"water-confirm-read"){self.confirm_health_reminder(HealthReminder::Water);}
+                if notice_button(&nc,250.0,12.0,68.0,locale.text("喝一口"),"water-confirm"){self.notice=None;self.drink_water();}
             }else{
                 let label=if is_focus{locale.text("开始")}else if is_power{locale.text("知道了")}else{locale.text("查看")};
                 if notice_button(&nc,257.0,12.0,60.0,label,"notice-action"){
@@ -1647,9 +1647,9 @@ impl App {
                             setting_row(ui,locale.text("定时提醒"),locale.text("确认或喝水后重新计时；达标后停止提醒"),&mut self.water.remind);
                             if self.water.remind!=old_remind{self.water.save();self.confirm_health_reminder(HealthReminder::Water);}
                             ui.separator();
-                            if setting_number(ui,"每日目标",&mut self.water.goal_ml,500,6000," ml",50.0){self.water.save();}
-                            setting_number(ui,"每次记录",&mut self.settings.serving_ml,50,1000," ml",25.0);
-                            setting_number(ui,"提醒间隔",&mut self.settings.water_minutes,5,180," 分钟",1.0);
+                            if setting_number(ui,locale.text("每日目标"),&mut self.water.goal_ml,500,6000," ml",50.0){self.water.save();}
+                            setting_number(ui,locale.text("每次记录"),&mut self.settings.serving_ml,50,1000," ml",25.0);
+                            setting_number(ui,locale.text("提醒间隔"),&mut self.settings.water_minutes,5,180,locale.text(" 分钟"),1.0);
                         });
                         settings_label(ui,locale.text("久坐提醒"));
                         settings_card(ui,|ui|{
@@ -1657,9 +1657,9 @@ impl App {
                             setting_row(ui,locale.text("定时提醒"),locale.text("确认提醒或点「起身了」后重新计时"),&mut self.settings.sit_remind);
                             if self.settings.sit_remind!=old_sit {self.confirm_health_reminder(HealthReminder::Sit);}
                             ui.separator();
-                            setting_number(ui,"久坐时长",&mut self.settings.sit_minutes,15,180," 分钟",1.0);
+                            setting_number(ui,locale.text("久坐时长"),&mut self.settings.sit_minutes,15,180,locale.text(" 分钟"),1.0);
                             ui.add_space(3.0);
-                            ui.small("专注计时进行中不打扰，专注结束后再提醒。");
+                            ui.small(locale.text("专注计时进行中不打扰，专注结束后再提醒。"));
                         });
                         settings_label(ui,locale.text("提醒时段"));
                         settings_card(ui,|ui|{
@@ -1686,7 +1686,7 @@ impl App {
                                 });
                             }
                             ui.add_space(3.0);
-                            ui.small("喝水和久坐提醒只在提醒时段内、午休以外弹出。");
+                            ui.small(locale.text("喝水和久坐提醒只在提醒时段内、午休以外弹出。"));
                         });
                     }
                     4=>{
@@ -1756,7 +1756,7 @@ impl App {
                         settings_card(ui,|ui|{
                             master_hint(ui);
                             ui.add_enabled_ui(master,|ui|{
-                            ui.label(egui::RichText::new(&self.listener_status).size(13.0));
+                            ui.label(egui::RichText::new(locale.status(&self.listener_status)).size(13.0));
                             if self.settings.read_notifications {
                                 if ui.button(if self.settings.qq_only{locale.text("断开 QQ 通知")}else{locale.text("断开系统通知")}).clicked(){self.pending.push(Cmd::DisconnectNotifications);}
                             }else{

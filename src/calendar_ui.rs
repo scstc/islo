@@ -270,7 +270,7 @@ impl App {
             .and_then(|at|at.and_local_timezone(chrono::Local).earliest()).map(|at|at.timestamp()).unwrap_or_else(||chrono::Local::now().timestamp());
         c.text(15.0,25.0,locale.text("日程"),14.5,W::Bold,theme::WHITE,H::Left);
         if c.hit(15.0,7.0,84.0,25.0,"calendar-today").on_hover_text(locale.text("回到今天")).clicked(){self.select_calendar_day(today);}
-        let (add,b)=paint::capsule(c,101.0,7.0,46.0,22.0,"calendar-add-local",theme::BTN,theme::BTN_HOVER);
+        let (add,b)=paint::capsule(c,101.0,9.0,46.0,18.0,"calendar-add-local",theme::BTN,theme::BTN_HOVER);
         b.centered_text(124.0,18.0,locale.text("＋ 新增"),10.0,W::Regular,theme::WHITE,H::Center);
         if add.clicked(){self.open_calendar_editor(None);return;}
         c.fill(38.0,36.0,145.0,174.0,10.0,theme::CARD);
@@ -332,7 +332,7 @@ impl App {
         if scroll_to_focus {first=0;}
         first=first.min(max);
         if featured_index.is_none() {
-            let message=if self.calendar.view.loading && events.is_empty(){locale.text("正在获取日程…")}else if !self.calendar.view.error.is_empty() && events.is_empty(){locale.text("暂时无法获取日程")}else if ended_count>0 && events.is_empty(){locale.text("当天日程已结束")}else if events.is_empty(){locale.text("当天暂无日程")}else{locale.text("暂无待开始的定时日程")};
+            let message=if self.calendar.view.loading && events.is_empty(){locale.text("正在获取日程…")}else if !self.calendar.view.error.is_empty() && events.is_empty(){locale.text("暂时无法获取日程")}else if !self.calendar.view.warning.is_empty() && events.is_empty(){locale.text("部分日程未同步")}else if ended_count>0 && events.is_empty(){locale.text("当天日程已结束")}else if events.is_empty(){locale.text("当天暂无日程")}else{locale.text("暂无待开始的定时日程")};
             c.centered_text(286.0,if events.is_empty(){111.0}else{76.0},message,11.0,W::Semibold,theme::WHITE,H::Center);
             if events.is_empty(){
                 source_icon(c,Source::Calendar(None),275.0,70.0,22.0);

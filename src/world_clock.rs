@@ -182,9 +182,9 @@ impl App {
         let (hover,_)=c.hover_t(&toggle);
         c.centered_text(323.5,18.0,if self.world_clock.globe_view{locale.text("列表")}else{locale.text("地球")},10.5,W::Regular,crate::paint::mix(theme::GRAY,theme::WHITE,hover),H::Center);
         if toggle.clicked(){self.world_clock.globe_view=!self.world_clock.globe_view;}
-        let expand=c.hit(344.0,6.0,31.0,25.0,"world-expand").on_hover_text(locale.text("展开世界时钟窗口"));
+        let expand=c.hit(271.0,6.0,31.0,25.0,"world-expand").on_hover_text(locale.text("展开世界时钟窗口"));
         let (hover,_)=c.hover_t(&expand);
-        c.centered_text(359.5,18.0,locale.text("展开"),10.5,W::Regular,crate::paint::mix(theme::GRAY,theme::WHITE,hover),H::Center);
+        c.centered_text(286.5,18.0,locale.text("展开"),10.5,W::Regular,crate::paint::mix(theme::GRAY,theme::WHITE,hover),H::Center);
         if expand.clicked(){self.world_clock.window_open=true;self.world_clock.window_focus=true;}
         let Some(now) = instant(env) else {
             c.text(209.5,90.0,locale.text("等待系统时间"),13.0,W::Regular,theme::GRAY,H::Center);

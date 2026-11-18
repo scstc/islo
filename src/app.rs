@@ -3058,7 +3058,7 @@ impl App {
         let base = 25.0;
         let (a, b, col) = match page {
             0 | CALENDAR_PAGE | WORLD_CLOCK_PAGE => return,
-            1 => ("番茄", "专注", theme::RED_TOP),
+            1 => ("专注", "", theme::RED_TOP),
             // 健康页的标题由页面自己画（「健康提醒」+ 喝水/久坐分段切换）。
             2 => return,
             // 置物架的标题就是「置物架 | 剪贴板」分栏，由页面自己画。
