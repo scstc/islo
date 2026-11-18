@@ -58,8 +58,12 @@ fn draw(h:&mut H,events:Vec<egui::Event>,size:Vec2,scale:f32)->(egui::FullOutput
 }
 
 fn click(h:&mut H,label:&str){
+    click_in_settings(h,label,egui::vec2(740.0,1100.0));
+}
+
+fn click_in_settings(h:&mut H,label:&str,size:Vec2){
     let point=h.shapes.iter().find_map(|s|match &s.shape{egui::Shape::Text(t)if t.galley.text()==label=>Some(t.visual_bounding_rect().center()),_=>None}).unwrap_or_else(||panic!("未找到控件：{label}"));
-    for pressed in [true,false]{draw(h,vec![egui::Event::PointerMoved(point),egui::Event::PointerButton{pos:point,button:egui::PointerButton::Primary,pressed,modifiers:Default::default()}],egui::vec2(740.0,1100.0),1.0);}
+    for pressed in [true,false]{draw(h,vec![egui::Event::PointerMoved(point),egui::Event::PointerButton{pos:point,button:egui::PointerButton::Primary,pressed,modifiers:Default::default()}],size,1.0);}
 }
 
 #[test]
@@ -127,9 +131,12 @@ fn qweather_city_dropdown_supports_fuzzy_input_keyboard_selection_and_add(){
 #[test]
 fn qweather_draft_hides_default_cities_requires_validation_and_can_collapse_without_hiding_cities(){
     let _g=ENV_LOCK.lock().unwrap_or_else(|e|e.into_inner());
+    // 展开用量说明和连接错误后仍需容纳下方城市卡片，避免受系统字体度量影响而裁切。
+    let size=egui::vec2(740.0,1600.0);
+    let click=|h:&mut H,label:&str|click_in_settings(h,label,size);
     for theme in [SettingsTheme::Dark,SettingsTheme::Light]{
         let mut h=fixture(theme);let settings=format!("{:?}",h.app.settings);
-        for _ in 0..3{draw(&mut h,vec![],egui::vec2(740.0,1100.0),1.0);}
+        for _ in 0..3{draw(&mut h,vec![],size,1.0);}
         click(&mut h,"和风天气");
         assert!(h.app.weather_source.selected==Provider::Qweather&&h.app.weather_source.displayed==Provider::OpenMeteo);
         let text=|h:&H|h.shapes.iter().filter_map(|s|if let egui::Shape::Text(t)=&s.shape{Some(t.galley.text().to_string())}else{None}).collect::<Vec<_>>().join("\n");
@@ -139,18 +146,18 @@ fn qweather_draft_hides_default_cities_requires_validation_and_can_collapse_with
         click(&mut h,"测试连接");assert!(h.app.weather_source.message.unwrap().1);
         click(&mut h,"保存并启用");assert!(h.app.weather_source.displayed==Provider::OpenMeteo);
         click(&mut h,"免费额度详情");assert!(text(&h).contains("50,000"));assert!(!text(&h).contains("840")&&!text(&h).contains("预估"));
-        click(&mut h,"收起");assert!(!h.app.weather_source.config_open);draw(&mut h,vec![],egui::vec2(740.0,1100.0),1.0);
+        click(&mut h,"收起");assert!(!h.app.weather_source.config_open);draw(&mut h,vec![],size,1.0);
         assert!(!text(&h).lines().any(|line|line=="API Host"));assert!(text(&h).contains("和风城市")&&text(&h).contains("保存并启用"));
         click(&mut h,"展开");assert!(h.app.weather_source.config_open);
         assert!(!text(&h).contains("frontend-placeholder"));assert_eq!(format!("{:?}",h.app.settings),settings);
         h.app.settings.save();let saved=std::fs::read_to_string(crate::model::config_dir().join("settings.txt")).unwrap();assert!(!saved.contains("frontend-placeholder"));
         click(&mut h,"配置教程 ↗");assert!(h.app.weather_source.tutorial_open);
-        let (_,children)=draw(&mut h,vec![],egui::vec2(740.0,1100.0),1.0);assert!(children.iter().any(|(id,_)|*id==egui::ViewportId::from_hash_of("daozai-weather-tutorial")));
+        let (_,children)=draw(&mut h,vec![],size,1.0);assert!(children.iter().any(|(id,_)|*id==egui::ViewportId::from_hash_of("daozai-weather-tutorial")));
         let second_tiles:Vec<_>=h.ctx.tex_manager().read().allocated().filter(|(_,meta)|meta.name.starts_with("weather-tutorial-1-")).map(|(id,_)|*id).collect();assert!(!second_tiles.is_empty());
         let mut second_visible=false;
         for frame in 0..45 {
             let mut events=vec![egui::Event::PointerMoved(Pos2::new(400.0,400.0))];if frame==2||frame==24{events.push(egui::Event::MouseWheel{unit:egui::MouseWheelUnit::Point,delta:egui::vec2(0.0,if frame==2{-2000.0}else{-10000.0}),modifiers:Default::default()});}
-            let (_,children)=draw(&mut h,events,egui::vec2(740.0,1100.0),1.0);let help=&children.iter().find(|(id,_)|*id==egui::ViewportId::from_hash_of("daozai-weather-tutorial")).unwrap().1;
+            let (_,children)=draw(&mut h,events,size,1.0);let help=&children.iter().find(|(id,_)|*id==egui::ViewportId::from_hash_of("daozai-weather-tutorial")).unwrap().1;
             second_visible|=help.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Rect(r)if second_tiles.contains(&r.fill_texture_id())&&s.clip_rect.intersects(r.rect)));
         }
         assert!(second_visible,"长图应能连续滚到新教程后半段");
