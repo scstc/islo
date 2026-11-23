@@ -148,7 +148,8 @@ fn fullscreen_reminders_keep_pending_state_and_render_independently_of_island_hi
         h.app.todos.save();h.ctx.set_embed_viewports(false);
         let output=std::sync::Arc::new(Mutex::new(None));let capture=output.clone();
         egui::Context::set_immediate_viewport_renderer(move|ctx,mut viewport|{
-            assert_eq!(viewport.builder.fullscreen,Some(true));
+            assert_eq!(viewport.builder.visible,Some(false),"Keep the reminder hidden while its rendering surface is initialized");
+            assert_ne!(viewport.builder.fullscreen,Some(true),"Create the rendering surface in windowed mode");
             assert_eq!(viewport.builder.window_level,Some(egui::WindowLevel::AlwaysOnTop));
             let raw=egui::RawInput{viewport_id:viewport.ids.this,screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(1280.0,720.0))),viewports:std::iter::once((viewport.ids.this,egui::ViewportInfo::default())).collect(),..Default::default()};
             *capture.lock().unwrap()=Some(ctx.run(raw,|ctx|(viewport.viewport_ui_cb)(ctx)));
@@ -156,9 +157,19 @@ fn fullscreen_reminders_keep_pending_state_and_render_independently_of_island_hi
         let preview=std::env::var_os("ISLO_REMINDER_PREVIEW_DIR").map(std::path::PathBuf::from);
         let mut raster=preview.as_ref().map(|_|crate::preview_raster::Raster::new(1280,720));
         let mut shapes=vec![];
+        let id=egui::ViewportId::from_hash_of("islo-task-reminder");
         for frame in 0..3{
             let root=h.ctx.run(Default::default(),|ctx|h.app.task_reminder_ui(ctx));
             let child=output.lock().unwrap().take().unwrap();
+            let commands=&root.viewport_output[&id].commands;
+            if frame==0 {
+                let fullscreen=commands.iter().position(|cmd|matches!(cmd,egui::ViewportCommand::Fullscreen(true))).unwrap();
+                let show=commands.iter().position(|cmd|matches!(cmd,egui::ViewportCommand::Visible(true))).unwrap();
+                let focus=commands.iter().position(|cmd|matches!(cmd,egui::ViewportCommand::Focus)).unwrap();
+                assert!(fullscreen<show && show<focus,"Switch to fullscreen before showing and focusing the reminder");
+            } else {
+                assert!(!commands.iter().any(|cmd|matches!(cmd,egui::ViewportCommand::Fullscreen(_))),"Repainting the reminder must not switch window modes again");
+            }
             if let Some(raster)=raster.as_mut(){raster.update_textures(&root.textures_delta);raster.update_textures(&child.textures_delta);
                 if frame==2{raster.buf.fill([0.0,0.0,0.0,1.0]);raster.draw(&h.ctx.tessellate(child.shapes.clone(),child.pixels_per_point),child.pixels_per_point);}
             }

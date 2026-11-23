@@ -211,7 +211,6 @@ impl App {
             return;
         }
         let first = !self.task_reminder.visible;
-        self.task_reminder.visible = true;
         if first || self.task_reminder.art.is_none() {
             self.task_reminder.art = Some(Art::new(ctx));
         }
@@ -226,13 +225,13 @@ impl App {
             .with_icon(theme::app_icon())
             .with_decorations(false)
             .with_resizable(false)
-            .with_fullscreen(true)
             .with_window_level(egui::WindowLevel::AlwaysOnTop)
-            .with_active(true);
+            .with_visible(false)
+            .with_active(false);
         if let Some(display) =
             crate::display_layout::selected(&self.displays, &self.settings.display_id)
         {
-            // Window creation chooses the monitor from its initial position, before fullscreen.
+            // Place the window on the selected monitor before entering fullscreen.
             let scale = ctx.pixels_per_point();
             builder = builder.with_position(egui::pos2(
                 display.bounds.left as f32 / scale,
@@ -245,7 +244,11 @@ impl App {
             |ctx, _| {
                 crate::i18n::set_locale(ctx, locale);
                 if first {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    self.task_reminder.visible = true;
+                    // Let eframe initialize and paint the windowed surface before switching
+                    // modes. Creating the HWND in fullscreen can fail on Windows DX12.
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 }
                 if ctx.input(|i| i.viewport().close_requested() || i.key_pressed(egui::Key::Escape))
