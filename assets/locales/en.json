@@ -1464,7 +1464,7 @@
   "还没有天气数据": "No weather data yet",
   "点右上「刷新」重试": "Select Refresh to try again.",
   "，当前显示的是缓存": " · Showing cached weather",
-  "按网络出口识别所在城市；使用代理时可能是代理所在地": "Use your network location. A proxy can affect the result.",
+  "按网络出口识别所在城市；使用代理时可能是代理所在地": "Network location; proxy may affect it.",
   "这个城市已经在列表里": "This city is already saved.",
   "先从下拉列表确认具体地区": "Choose a location from the suggestions.",
   "实况约 60 分钟 · 预报约 6 小时": "Conditions ~60 min · Forecast ~6 hr",
@@ -2445,5 +2445,8 @@
   "- 让用户填的名字、日期写成 plugin.json 里的设置项\n": "- Declare names and dates that users fill in as settings in plugin.json.\n",
   "- 改完运行 \"{0}\" --plugin-test plugin.json，直到校验通过\n": "- After editing, run \"{0}\" --plugin-test plugin.json until validation succeeds.\n",
   "- 可追加 --input mock.json，模拟设置、私有数据、当前时间和网络响应\n": "- Optionally add --input mock.json to mock settings, private data, time and network responses.\n",
-  "- 最后告诉我怎么在岛仔里安装试用": "- Tell me how to install and try the plugin in islo."
+  "- 最后告诉我怎么在岛仔里安装试用": "- Tell me how to install and try the plugin in islo.",
+  "底部": "Bottom",
+  "查看硬件负载和实时吞吐量": "View hardware load and real-time throughput",
+  "查看蓝牙电量和 2.4G 接收器状态": "View Bluetooth battery and 2.4G receiver status"
 }

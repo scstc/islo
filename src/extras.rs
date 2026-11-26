@@ -886,7 +886,8 @@ mod tests {
 
     #[test]
     fn settings_groups_keep_every_page_reachable() {
-        let groups = ["通用", "音乐", "专注与健康", "专注与健康", "待办与置物", "待办与置物", "消息提醒", "邮箱", "日程", "关于", "页面管理", "AI 额度", "世界时钟", "天气", "外观", "位置", "系统性能", "无线设备", "插件", "插件"];
+        let groups = ["通用", "音乐", "专注与健康", "专注与健康", "待办与置物", "待办与置物", "消息提醒", "邮箱", "日程", "关于", "页面管理", "AI 额度", "世界时钟", "天气", "外观", "位置", "系统性能", "无线设备",
+            #[cfg(feature="sdk-js")] "插件"];
         for (tab, expected) in groups.iter().enumerate() {
             let matches: Vec<_> = SETTINGS_GROUPS.iter().filter(|(_,start,end,_)| (*start..=*end).contains(&tab)).collect();
             assert_eq!(matches.len(), 1, "页面 {tab} 必须且只能属于一个分组");
@@ -1884,11 +1885,11 @@ impl App {
                     if tab==4 {crate::sdk_spike::live_settings(ui);}
                     match tab {
                     16=>{
-                        let on=self.settings_feature_header(ui,crate::app::PERFORMANCE_PAGE,"查看硬件负载和实时吞吐量",|_,_|{});
+                        let on=self.settings_feature_header(ui,crate::app::PERFORMANCE_PAGE,locale.text("查看硬件负载和实时吞吐量"),|_,_|{});
                         ui.add_enabled_ui(on,|ui|self.performance_settings(ui));
                     }
                     SETTINGS_TAB_WIRELESS=>{
-                        let on=self.settings_feature_header(ui,crate::app::BLUETOOTH_PAGE,"查看蓝牙电量和 2.4G 接收器状态",|_,_|{});
+                        let on=self.settings_feature_header(ui,crate::app::BLUETOOTH_PAGE,locale.text("查看蓝牙电量和 2.4G 接收器状态"),|_,_|{});
                         #[cfg(all(windows,feature="sdk-js"))]
                         self.plugins.wireless_settings(ui);
                         ui.add_enabled_ui(on,|ui|{
@@ -2045,7 +2046,7 @@ impl App {
                             let mut date_modes=|ui:&mut egui::Ui|{
                                 use crate::model::ResidentDate;
                                 let modes=[
-                                    (ResidentDate::Off,locale.text("关闭")),
+                                    (ResidentDate::Off,if locale.is_english(){"Off"}else{"关闭"}),
                                     (ResidentDate::LunarOnly,locale.text("仅农历")),
                                     (ResidentDate::Gregorian,locale.text("仅公历")),
                                     (ResidentDate::Lunar,locale.text("公历＋农历")),
@@ -2599,17 +2600,18 @@ impl App {
                                 enabled: true,
                                 use_windows_proxy: gmail && self.mail.form.use_windows_proxy,
                             };
-                            settings_control_row(ui,locale.text("授权码"),mail_label_width,|ui|{
-                                let field=ui.add_sized([input_width,30.0],egui::TextEdit::singleline(&mut self.mail.form.password).vertical_align(egui::Align::Center).password(!self.mail.form.show).hint_text(locale.text("输入邮箱授权码")));
-                                if ui.add_sized([48.0,30.0],egui::Button::new(if self.mail.form.show{locale.text("隐藏")}else{locale.text("显示")})).clicked(){self.mail.form.show=!self.mail.form.show;}
-                                field
+                            let microsoft=target.endpoint().err().as_deref()==Some(crate::mail::MICROSOFT_OAUTH_REQUIRED);
+                            ui.add_enabled_ui(!microsoft,|ui|{
+                                settings_control_row(ui,locale.text("授权码"),mail_label_width,|ui|{
+                                    let field=ui.add_sized([input_width,30.0],egui::TextEdit::singleline(&mut self.mail.form.password).vertical_align(egui::Align::Center).password(!self.mail.form.show).hint_text(locale.text("输入邮箱授权码")));
+                                    if ui.add_sized([48.0,30.0],egui::Button::new(if self.mail.form.show{locale.text("隐藏")}else{locale.text("显示")})).clicked(){self.mail.form.show=!self.mail.form.show;}
+                                    field
+                                });
                             });
-                            let candidate=crate::mail::Account{custom:(self.mail.form.provider==crate::mail::Provider::Custom).then(||self.mail.form.custom.clone()),email:self.mail.form.email.trim().into(),provider:self.mail.form.provider,enabled:true,use_windows_proxy:gmail && self.mail.form.use_windows_proxy};
-                            let microsoft=candidate.endpoint().err().as_deref()==Some(crate::mail::MICROSOFT_OAUTH_REQUIRED);
                             if microsoft{ui.label(locale.text(crate::mail::MICROSOFT_OAUTH_REQUIRED));}
                             ui.horizontal(|ui|{
-                                let test = ui.button(locale.text("测试连接")).clicked();
-                                let save = ui.button(locale.text("保存并开始监控")).clicked();
+                                let test = ui.add_enabled(!microsoft,egui::Button::new(locale.text("测试连接"))).clicked();
+                                let save = ui.add_enabled(!microsoft,egui::Button::new(locale.text("保存并开始监控"))).clicked();
                                 if test || save {
                                     let email = target.email.clone();
                                     if !email.contains('@'){self.mail.note="请先填邮箱地址".into();}

@@ -4115,7 +4115,8 @@ impl App {
         let start=current.saturating_sub(max_slots/2).min(all_pages.len().saturating_sub(max_slots));
         let pages=&all_pages[start..(start+max_slots).min(all_pages.len())];
         let dot_width=|page:usize|self.dots.get(page).map_or(if page==self.page {16.0}else{4.0},|dot|dot.pos).max(if page==WORLD_CLOCK_PAGE {12.0}else{3.0});
-        let gap = if shortcuts { 3.0 } else { 4.0 };
+        let dense_shortcuts = shortcuts && pages.len()>11;
+        let gap = if dense_shortcuts { 2.5 } else if shortcuts { 3.0 } else { 4.0 };
         let dot_scale = if shortcuts { 0.75 } else { 1.0 };
         let dot_size = 4.0 * dot_scale;
         let dot_y = if shortcuts {
@@ -4126,8 +4127,8 @@ impl App {
         // 图标和页码点共用底部一行，按可见页面的数量整体居中。
         let dots_width = pages.iter().copied().map(dot_width).sum::<f32>() * dot_scale
             + gap * (pages.len() - 1) as f32;
-        let shortcut_slot = 26.0;
-        let group_gap = 14.0;
+        let shortcut_slot = if dense_shortcuts {25.5} else {26.0};
+        let group_gap = if dense_shortcuts {10.0} else {14.0};
         let shortcut_width = if shortcuts { shortcut_slot * pages.len() as f32 + group_gap } else { 0.0 };
         let mut x = (PW - dots_width - shortcut_width) / 2.0;
         let mut clicked = None;

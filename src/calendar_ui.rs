@@ -102,16 +102,7 @@ pub(crate) fn has_ended(event:&mail::Meeting,now:i64)->bool {
 
 fn draw_calendar_annotation(c:&Card,lunar:&crate::lunar_calendar::LunarDate) {
     let locale=crate::i18n::locale(c.ui.ctx());
-    let label=if locale.is_english(){
-        let (month,day)=lunar.label.split_once('月').unwrap_or(("",&lunar.label));
-        let (leap,month)=month.strip_prefix('闰').map_or((false,month),|value|(true,value));
-        let months=["正","二","三","四","五","六","七","八","九","十","十一","腊"];
-        let days=["初一","初二","初三","初四","初五","初六","初七","初八","初九","初十","十一","十二","十三","十四","十五","十六","十七","十八","十九","二十","廿一","廿二","廿三","廿四","廿五","廿六","廿七","廿八","廿九","三十"];
-        match (months.iter().position(|m|*m==month),days.iter().position(|d|*d==day)) {
-            (Some(m),Some(d))=>format!("Lunar {}{}/{}",if leap{"leap "}else{""},m+1,d+1),
-            _=>locale.text("农历").to_owned(),
-        }
-    }else{format!("农历{}",lunar.label)};
+    let label=lunar.localized_label(locale);
     c.centered_text(34.0,75.0,&label,8.5,W::Regular,Color32::from_rgb(168,168,178),H::Left);
     if let Some(term)=lunar.solar_term {
         let term=locale.text(term);

@@ -4012,7 +4012,7 @@ fn hold_open_header_controls_do_not_overlap_during_page_transitions() {
     h.app.show_page(1);
     h.hover(H::local(200.0,50.0),0.8);
     let rect=|h:&H,name|h.ctx.read_response(egui::Id::new(("card",true,name))).map(|r|r.rect);
-    for (page,action) in [(3,"clip-clear"),(6,"quota-refresh"),(8,"weather-refresh"),(0,"m-play")] {
+    for (page,action) in [(3,"clip-clear"),(6,"quota-refresh"),(crate::app::WEATHER_PAGE,"weather-refresh"),(0,"m-play")] {
         h.app.go(page,1.0);
         for _ in 0..40 {
             h.frame(vec![]);
@@ -4176,7 +4176,10 @@ fn side_docks_keep_both_edges_when_turning_to_a_shorter_page() {
         assert!(h.app.open);
         for sign in [-1.0,1.0] {
             h.app.go(6,1.0);
+            // Capture the fully expanded quota panel, not the first animation frame.
+            for _ in 0..45 {side_frame(&mut h,Some(resident));}
             let tall=side_frame(&mut h,Some(resident)).hit;
+            assert!(tall.height()>PH,"旧页须为完全展开的高面板");
             let edge=tall.center()+Vec2::new(0.0,sign*(tall.height()/2.0-3.0));
             for _ in 0..45 {side_frame(&mut h,Some(edge));}
             side_frame_events(&mut h,Some(edge),vec![egui::Event::MouseWheel {
@@ -4970,10 +4973,10 @@ fn quota_page_navigation_tracks_the_taller_panel(){
     h.app.settings.show_page_shortcuts=false;
     h.app.show_page(6);h.hover(H::local(300.0,60.0),0.8);
     assert!((h.hit.height()-178.0).abs()<0.2,"额度页新增的底部空间应属于命中区域");
-    let dot=h.shapes.iter().find_map(|shape|match &shape.shape{
-        egui::Shape::Rect(rect) if (rect.rect.width()-4.0).abs()<0.1&&(rect.rect.height()-5.0).abs()<0.1&&(rect.rect.center().y-H::local(0.0,h.app.expanded_height()-22.0).y).abs()<0.1=>Some(rect.rect.center()),_=>None,
-    }).expect("分页圆点应随加高的面板下移");
-    h.click(dot);assert_ne!(h.app.page,6,"新增底部区域中的分页应可点击");
+    let dot=h.ctx.read_response(egui::Id::new(("card",true,("dot",crate::app::MUSIC_PAGE))))
+        .expect("额度页应包含音乐页的分页圆点").interact_rect.center();
+    assert!((dot.y-H::local(0.0,h.app.expanded_height()-22.0).y).abs()<0.1,"分页圆点应随加高的面板下移");
+    h.click(dot);assert_eq!(h.app.page,crate::app::MUSIC_PAGE,"新增底部区域中的分页应可点击");
     h.app.show_page(6);h.hover(H::local(300.0,60.0),0.8);
     h.click(H::local(21.0,68.0));assert_eq!(h.app.page,5);
     h.hover(H::local(300.0,60.0),0.8);assert_eq!(h.app.expanded_height(),PH);
@@ -8611,7 +8614,7 @@ fn weather_resident_settings_preserve_old_orders_and_the_status_switch(){
     assert_eq!(h.app.settings.resident_order,[FOCUS,MUSIC,QUOTA,CLOCK,WEATHER,PET,BATTERY,crate::bar_layout::PERFORMANCE],"旧排列应在时钟后插入天气并保留其余顺序");
     h.app.weather.snapshot=Some(crate::weather::Snapshot{temp:9.0,..Default::default()});
     assert!(h.app.weather_pill().is_none(),"状态开关关闭后天气不占常驻位置");
-    assert!(h.app.module_on(8),"关闭常驻天气应保留天气页面");
+    assert!(h.app.module_on(crate::app::WEATHER_PAGE),"关闭常驻天气应保留天气页面");
     h.app.settings.save();h.app.settings=crate::model::Settings::load();
     assert!(h.app.weather_pill().is_none(),"重启后应保留常驻天气开关");
     for invalid in ["0,0,2,5,6,7,9","0,1,2,5,6,7,99","0,1,2","invalid",""] {
@@ -8624,7 +8627,7 @@ fn draw_page_management(h:&mut H,events:Vec<egui::Event>){
     let output=std::sync::Arc::new(Mutex::new(None));let capture=output.clone();h.t+=0.02;let time=h.t;
     egui::Context::set_immediate_viewport_renderer(move|ctx,mut viewport|{
         let id=viewport.ids.this;
-        let raw=egui::RawInput{viewport_id:id,screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(690.0,1500.0))),time:Some(time),events:events.clone(),viewports:std::iter::once((id,egui::ViewportInfo::default())).collect(),..Default::default()};
+        let raw=egui::RawInput{viewport_id:id,screen_rect:Some(Rect::from_min_size(Pos2::ZERO,egui::vec2(690.0,1800.0))),time:Some(time),events:events.clone(),viewports:std::iter::once((id,egui::ViewportInfo::default())).collect(),..Default::default()};
         *capture.lock().unwrap()=Some(ctx.run(raw,|ctx|(viewport.viewport_ui_cb)(ctx)));
     });
     let _=h.ctx.run(Default::default(),|ctx|h.app.settings_ui(ctx,false));
@@ -8681,7 +8684,7 @@ fn weather_status_switch_controls_the_badge_and_keeps_the_page_available(){
             for pressed in [true,false] {draw_page_management(&mut h,vec![egui::Event::PointerMoved(point),egui::Event::PointerButton{pos:point,button:egui::PointerButton::Primary,pressed,modifiers:Default::default()}]);}
             assert_eq!(h.app.weather_pill().is_some(),expected);
             assert_eq!(h.app.side_items().contains(&crate::side_dock::SideItem::Weather),expected);
-            assert!(h.app.module_on(8),"关闭状态组件后天气页仍可使用");
+            assert!(h.app.module_on(crate::app::WEATHER_PAGE),"关闭状态组件后天气页仍可使用");
             h.app.settings=crate::model::Settings::load();assert_eq!(h.app.weather_pill().is_some(),expected,"天气开关应自动保存");
         }
     }
@@ -11061,7 +11064,8 @@ fn unread_capsule_center_stays_put_as_the_island_springs_open() {
         h.app.receive_wechat_reminder();
         h.app.alerts.clear();
         h.app.notice=None;
-        let win=Rect::from_min_size(Pos2::ZERO,Vec2::new(WIN_W,WIN_H));
+        let size=if dock.is_side(){h.app.canvas_size()}else{Vec2::new(WIN_W,h.app.canvas_height())};
+        let win=Rect::from_min_size(Pos2::ZERO,size);
         h.cursor=Some(match dock {
             crate::model::Dock::Bottom=>win.center_bottom()-Vec2::new(0.0,12.0),
             crate::model::Dock::Top=>win.center_top()+Vec2::new(0.0,12.0),
@@ -11155,9 +11159,10 @@ fn unread_capsule_stays_full_size_when_crossing_the_gap() {
         h.app.settings.dock=dock;
         h.app.settings.wechat_notifications=true;
         h.app.receive_wechat_reminder();
-        let win=Rect::from_min_size(Pos2::ZERO,Vec2::new(WIN_W,WIN_H));
-        let panel=h.app.island_rect(win,crate::app::PW,h.app.expanded_height());
         h.app.show_page(1);
+        let size=if dock.is_side(){h.app.canvas_size()}else{Vec2::new(WIN_W,h.app.canvas_height())};
+        let win=Rect::from_min_size(Pos2::ZERO,size);
+        let panel=h.app.island_rect(win,crate::app::PW,h.app.expanded_height());
         h.hover(panel.center(),5.0);
         let badge=|h:&H|h.ctx.read_response(egui::Id::new(("card",true,"微信"))).unwrap().rect;
         let initial=badge(&h);

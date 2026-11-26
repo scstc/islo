@@ -142,6 +142,9 @@ fn disabling_an_in_flight_local_request_discards_it_and_preserves_other_cards() 
             Err(_) => false,
         });
         let mut stream = connection.unwrap();
+        // Windows inherits the listener's nonblocking mode on accepted sockets.
+        // Read with the bounded timeout instead of racing the client's first write.
+        stream.set_nonblocking(false)?;
         stream.set_read_timeout(Some(Duration::from_secs(2)))?;
         let mut request = String::new();
         let mut reader = BufReader::new(&mut stream);

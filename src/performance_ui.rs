@@ -225,8 +225,13 @@ fn paint_rate_column(c: &Card, left: f32, rates: [Option<Metric>; 2], r: &Readin
     for (i, m) in rates.into_iter().enumerate() {
         let Some(m) = m else { continue };
         let y = 9.5 + i as f32 * 11.5;
-        c.centered_text(left, y, m.rate_label().unwrap(), 8.5, W::Bold, metric_color(m), H::Left);
-        c.centered_text(left + 60., y, &resident_value(m, r), 9.5, W::Bold, INK, H::Right);
+        let locale = crate::i18n::locale(c.ui.ctx());
+        let label = locale.text(m.rate_label().unwrap());
+        let value = resident_value(m, r);
+        let available = (60. - c.text_w(label, 8.5, W::Bold) - 3.0).max(12.0);
+        c.centered_text(left, y, label, 8.5, W::Bold, metric_color(m), H::Left);
+        let size = 9.5 * (available / c.text_w(&value, 9.5, W::Bold).max(1.)).min(1.);
+        c.centered_text(left + 60., y, &value, size, W::Bold, INK, H::Right);
     }
 }
 
@@ -774,7 +779,8 @@ impl App {
                 let row = cy + i as f32 * 11.;
                 let value = resident_value(m, &r).replace("B/s", "").replace(' ', "");
                 let size = 8.5 * (22. / c.text_w(&value, 8.5, W::Bold)).min(1.);
-                c.centered_text(x - 15., row, m.rate_label().unwrap(), 7.5, W::Bold, metric_color(m), H::Left);
+                let label = match (locale.is_english(), m) { (true, Metric::Read) => "R", (true, Metric::Write) => "W", _ => m.rate_label().unwrap() };
+                c.centered_text(x - 15., row, label, 7.5, W::Bold, metric_color(m), H::Left);
                 c.centered_text(x + 16., row, &value, size, W::Bold, INK, H::Right);
             }
         };
