@@ -1,6 +1,6 @@
 use egui::{UserData, ViewportId};
 use epaint::ColorImage;
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use wgpu::{BindGroupLayout, MultisampleState, StoreOp};
 
 /// A texture and a buffer for reading the rendered frame back to the cpu.
@@ -11,6 +11,7 @@ use wgpu::{BindGroupLayout, MultisampleState, StoreOp};
 /// from where we can pull it back
 /// to the cpu.
 pub struct CaptureState {
+    available_buffer: Arc<Mutex<Option<wgpu::Buffer>>>,
     padding: BufferPadding,
     pub texture: wgpu::Texture,
     pipeline: wgpu::RenderPipeline,
@@ -56,6 +57,7 @@ impl CaptureState {
             Self::create_texture(device, surface_texture, &bind_group_layout);
 
         Self {
+            available_buffer: Default::default(),
             padding,
             texture,
             pipeline,
@@ -122,33 +124,7 @@ impl CaptureState {
             "Texture sizes must match, `CaptureState::update` was probably not called"
         );
 
-        // It would be more efficient to reuse the Buffer, e.g. via some kind of ring buffer, but
-        // for most screenshot use cases this should be fine. When taking many screenshots (e.g. for a video)
-        // it might make sense to revisit this and implement a more efficient solution.
-        #[allow(clippy::arc_with_non_send_sync)]
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("egui_screen_capture_buffer"),
-            size: (self.padding.padded_bytes_per_row * self.texture.height()) as u64,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let padding = self.padding;
-        let tex = &mut self.texture;
-
-        let tex_extent = tex.size();
-
-        encoder.copy_texture_to_buffer(
-            tex.as_image_copy(),
-            wgpu::TexelCopyBufferInfo {
-                buffer: &buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padding.padded_bytes_per_row),
-                    rows_per_image: None,
-                },
-            },
-            tex_extent,
-        );
+        let buffer = self.copy_to_buffer(device, encoder);
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("texture_copy"),
@@ -172,6 +148,38 @@ impl CaptureState {
         buffer
     }
 
+    fn copy_to_buffer(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> wgpu::Buffer {
+        let size = u64::from(self.padding.padded_bytes_per_row) * u64::from(self.texture.height());
+        // 只复用已解除映射且大小匹配的缓冲；上一帧仍在读回时照常提交新帧。
+        let available = self.available_buffer.lock().unwrap().take();
+        let buffer = available.filter(|b| b.size() == size).unwrap_or_else(|| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("egui_screen_capture_buffer"),
+                size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            })
+        });
+        encoder.copy_texture_to_buffer(
+            self.texture.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(self.padding.padded_bytes_per_row),
+                    rows_per_image: None,
+                },
+            },
+            self.texture.size(),
+        );
+
+        buffer
+    }
+
     /// Handles copying from the [`CaptureState`] texture to the surface texture and the cpu
     /// This function is non-blocking and will send the data to the given sender when it's ready.
     /// Pass in the buffer returned from [`CaptureState::copy_textures`].
@@ -184,8 +192,7 @@ impl CaptureState {
         tx: CaptureSender,
         viewport_id: ViewportId,
     ) {
-        #[allow(clippy::arc_with_non_send_sync)]
-        let buffer = Arc::new(buffer);
+        let available = self.available_buffer.clone();
         let buffer_clone = buffer.clone();
         let buffer_slice = buffer_clone.slice(..);
         let format = self.texture.format();
@@ -208,6 +215,7 @@ impl CaptureState {
 
             let pixels = capture_pixels(&buffer_slice.get_mapped_range(), padding, bgra);
             buffer.unmap();
+            *available.lock().unwrap() = Some(buffer);
 
             tx.send((
                 viewport_id,

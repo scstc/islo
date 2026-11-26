@@ -163,6 +163,7 @@ impl Form {
             email: self.email.clone(),
             provider,
             enabled: self.enabled,
+            use_windows_proxy: provider == Provider::Gmail && self.expected.as_ref().is_some_and(|account| account.provider == Provider::Gmail && account.use_windows_proxy),
             custom: (provider == Provider::Custom).then(|| self.custom.clone()),
         };
         account.endpoint()?;
@@ -747,8 +748,19 @@ mod tests {
             email: "sample@example.test".into(),
             provider: Provider::Qq,
             enabled: true,
+            use_windows_proxy: false,
             custom: None,
         }
+    }
+
+    #[test]
+    fn agent_mail_preserves_existing_gmail_proxy_on_metadata_edit() {
+        let old = Account { provider: Provider::Gmail, use_windows_proxy: true, ..account() };
+        let request = Change { email: Some(old.email.clone()), enabled: Some(false), ..Default::default() };
+        let form = Form::new(&[old], request).unwrap();
+        let changed = form.account().unwrap();
+        assert!(!changed.enabled);
+        assert!(changed.use_windows_proxy, "Editing ordinary account metadata must not discard an existing Gmail proxy preference");
     }
 
     #[test]

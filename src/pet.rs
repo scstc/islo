@@ -517,8 +517,8 @@ impl Pet {
         self.blush=approach(self.blush,if matches!(state,PetState::Happy|PetState::Satisfied|PetState::Excited|PetState::Laughing|PetState::Shy){1.0}else{0.0},12.0,dt);
     }
 
-    pub fn draw(&mut self, c: &Card, cx: f32, t: f64, palette:Option<crate::skin_paint::Palette>) {
-        if self.expressions.draw(c,cx,palette) {return;}
+    fn draw_face(&mut self, c: &Card, cx: f32, palette:Option<crate::skin_paint::Palette>, ink:Color32) -> bool {
+        if self.expressions.draw(c,cx,palette) {return true;}
         for (i, eye) in self.eyes.iter().enumerate() {
             let x = cx + if i == 0 { -5.6 } else { 5.6 } + self.gaze[0];
             let y = 14.5 + self.y + eye.y + self.gaze[1];
@@ -527,12 +527,22 @@ impl Pet {
                 (x + q * eye.spread, y + q * (eye.height / 2.0 + eye.tilt) + (1.0 - q*q) * eye.curve)
             }).collect();
             let stroke=if self.state==PetState::Music {3.6-0.8*smoothstep(0.5,1.5,eye.spread.abs())}else{3.6};
-            c.path(&points, stroke, theme::WHITE);
+            c.path(&points, stroke, ink);
             // 圆端点保持胶囊眼睛的轮廓。
-            for p in [points[0], points[12]] { c.circle(p.0, p.1, stroke/2.0, theme::WHITE); }
+            for p in [points[0], points[12]] { c.circle(p.0, p.1, stroke/2.0, ink); }
         }
         if self.state!=PetState::Music {self.mouth.draw(c,cx+self.gaze[0]*0.5,22.0+self.y+self.gaze[1]*0.75);}
         if self.blush>0.01 {for x in [cx-10.5,cx+10.5]{c.fill(x-1.6,18.6+self.y,3.2,1.4,0.7,theme::RED_TOP.gamma_multiply(self.blush*0.6));}}
+        false
+    }
+
+    #[cfg(feature="sdk-js")]
+    pub(crate) fn draw_canvas_face(&mut self,c:&Card,cx:f32,palette:Option<crate::skin_paint::Palette>,ink:Color32) {
+        self.draw_face(c,cx,palette,ink);
+    }
+
+    pub fn draw(&mut self, c: &Card, cx: f32, t: f64, palette:Option<crate::skin_paint::Palette>) {
+        if self.draw_face(c,cx,palette,theme::WHITE) {return;}
         match self.state {
             PetState::Dozing | PetState::Sleeping => {
                 let bob = ((t as f32 * 1.4).sin() + 1.0) * 0.7;

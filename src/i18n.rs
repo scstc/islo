@@ -138,6 +138,15 @@ mod tests {
         }
     }
     #[test]
+    fn merged_host_labels_follow_language_and_keep_plugin_names_verbatim(){
+        for (source, translation) in [("集市","Market"),("已安装","Installed"),("系统性能","System performance"),("无线设备","Wireless devices"),("本机通知来源","Local notification sources"),("兼容接收器","Compatible receivers")] {
+            assert_eq!(Locale::ZhCn.text(source),source);
+            assert_eq!(Locale::En.text(source),translation);
+        }
+        let plugin="我的插件 {1}";
+        assert_eq!(Locale::En.format("卸载「{0}」",&[("0",plugin.into())]),format!("Uninstall {plugin}"));
+    }
+    #[test]
     fn language_preferences_round_trip_and_keep_legacy_chinese_default() {
         for language in Language::ALL {assert_eq!(Language::parse(language.key()),language);}
         assert_eq!(Language::parse("invalid"),Language::Chinese);

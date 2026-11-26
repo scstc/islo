@@ -196,7 +196,7 @@ fn get_with_proxy(agent: &ureq::Agent, url: &url::Url, service: &str, proxy: Opt
 fn request(agent: &ureq::Agent, url: &url::Url, service: &str, route: &str) -> Result<Value,(String,bool)> {
     let start=std::time::Instant::now();
     let mut detail="ok".to_string();
-    let result=agent.get(url.as_str()).set("Accept", "application/json").set("User-Agent",concat!("Daozai/",env!("CARGO_PKG_VERSION"))).call()
+    let result=agent.get(url.as_str()).set("Accept", "application/json").set("User-Agent",concat!("islo/",env!("ISLO_APP_VERSION"))).call()
         .map_err(|error| match error {
             ureq::Error::Status(code, _) => {detail=format!("http_{code}");(format!("服务返回 {code}"),code>=500 || code==403 || code==408)},
             ureq::Error::Transport(error) => {

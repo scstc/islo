@@ -70,7 +70,7 @@ fn search(title:String,artist:String,duration:f64)->Found {
     let mut url=url::Url::parse("https://music.163.com/api/cloudsearch/pc").ok()?;
     url.query_pairs_mut().append_pair("s",query.trim()).append_pair("type","1").append_pair("limit","10").append_pair("offset","0");
     let response=ureq::AgentBuilder::new().timeout(Duration::from_secs(5)).redirects(0).build().get(url.as_str())
-        .set("User-Agent",concat!("Daozai/",env!("CARGO_PKG_VERSION")," (Windows)"))
+        .set("User-Agent",concat!("islo/",env!("ISLO_APP_VERSION")," (Windows)"))
         .set("Referer","https://music.163.com").set("Accept","application/json").call().ok()?;
     use std::io::Read;
     let limit=512*1024;let mut bytes=Vec::new();

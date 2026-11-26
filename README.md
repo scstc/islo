@@ -1,6 +1,6 @@
 # islo
 
-islo 是基于 [岛仔（Daozai）](https://github.com/Renly1994/xiaotang-daozai) 的独立桌面工具分支，保留原作的 MIT 许可证与第三方署名。本分支已同步上游 v0.6.66，并保留世界时钟、离线地球、中英文切换、Agent CLI 和 Outlook 授权。
+islo 是基于 [岛仔（Daozai）](https://github.com/Renly1994/xiaotang-daozai) 的独立桌面工具分支，保留原作的 MIT 许可证与第三方署名。本分支已同步上游 v0.6.70 及后续无线设备兼容说明更新，并保留世界时钟、离线地球、中英文切换、Agent CLI 和 Outlook 授权。
 
 - 当前开发分支为 `26.4.4`，首个发布版本为 `26.4.4.1`。完整版本由 `VERSION` 文件统一管理。
 - 安装包：`islo-Setup-v<版本>-x64.exe`；免安装包：`islo-v<版本>-windows-x64.zip`。
@@ -134,9 +134,19 @@ islo 是一款开源的 Windows 桌面小工具。平时收起在屏幕边缘，
 
 ![AI 额度面板：Codex 额度、WorkBuddy 积分与 DeepSeek 余额](docs/images/readme/ai-quota.webp)
 
-支持 **Codex、Claude、Kimi、Grok Bot、Gemini、ZCode、WorkBuddy、DeepSeek 和 Kiro**。
+支持 **Codex、Claude、Kimi、Grok Bot、Gemini、GLM Coding Plan、WorkBuddy、DeepSeek 和 Kiro**。
 
 订阅额度、重置时间、套餐积分与 API 余额，按服务展示。多个账号可分别命名、选择配色，常用账号直接放在收起的小岛上。
+
+- **GLM / ZCode**：填写 Coding Plan 套餐 Key 查询额度。本机 ZCode 的旧连接可在 AI 额度设置中重新连接；Start Plan 体验额度在 ZCode 官方客户端查看。
+- **Claude**：只读取桌面版本地用量历史与缓存，或接收 Claude Code 官方状态栏输出；岛仔不使用 Claude 登录令牌，也不请求 Claude 额度接口。数据随官方客户端使用更新，桌面版缓存有效时自动显示重置时间，读取不到时显示未知。
+- **Kiro**：只读识别 Kiro 登录缓存并核验用户，显示套餐、有效试用与赠送 / 加购点数及明细，超额上限单独显示；支持美国东部和欧洲中部区域。不自动续期，登录过期时请在 Kiro 中重新登录。
+- **WorkBuddy**：查看剩余积分；优先识别本机客户端登录，也可在默认浏览器完成授权。
+- **Gemini**：支持 Chrome 144+ 原生授权连接，读取官网的 5 小时与每周额度，无需扩展。先在 Chrome 登录 Gemini，首次在 `chrome://inspect/#remote-debugging` 开启连接，回岛仔点击连接并在 Chrome 允许授权；会话加密保存在本机，后续独立刷新。高级设置保留手动 Cookie 连接。
+- **DeepSeek**：使用 API Key 连接，查看账户余额、充值与赠送金额。
+- **中转站**：自动识别通用余额、New API 和 Sub2API，保留 One API 兼容计费接口；New API 可用用户 Token 查询账户余额。高级设置支持粘贴 CC Switch 的 `request` / `extractor` 自定义查询脚本，脚本与凭据加密保存在本机。
+
+连接方式、可用字段与账号订阅有关；请求失败或登录过期时，以对应服务的官方页面为准。
 
 ## 出门前先看一眼天气
 
@@ -175,9 +185,9 @@ islo 是一款开源的 Windows 桌面小工具。平时收起在屏幕边缘，
 
 | 类型 | 支持入口 | 需要准备 |
 | --- | --- | --- |
-| 邮箱 | QQ、163、126、腾讯企业邮、iCloud、Gmail、Outlook／Hotmail | IMAP；Outlook 使用微软 OAuth2 网页授权，其余使用授权码或 App 专用密码 |
-| 工作日历 | 飞书、钉钉、企业微信 | CalDAV；需要平台提供的独立日历账号／密码，安装桌面端本身不等于授权 |
-| AI 额度 | Codex、Claude、Kimi、Grok Bot、Gemini | 各服务的本机登录引用或独立连接方式；不同账号与订阅的可用性可能不同 |
+| 邮箱 | QQ、163、126、腾讯企业邮、iCloud、Gmail、Outlook／Hotmail、自定义 IMAP | Outlook 使用微软 OAuth2 网页授权；其他需启用 IMAP，填写授权码或 App 专用密码；自定义服务可填写服务器、端口与登录用户名 |
+| 日历 | 飞书、钉钉、企业微信、iCloud、CalDAV、Exchange ActiveSync | 服务商提供的日历同步凭据与必要的服务器地址；安装桌面客户端不等于授权 |
+| AI 额度 | Codex、Claude、Kimi、Grok Bot、Gemini、GLM Coding Plan、WorkBuddy、DeepSeek、Kiro | 对应客户端登录、独立授权或 API Key；具体以设置中的连接入口为准 |
 
 QQ 收信、邮件日程和飞书个人日历已进行真实账号测试。其他日历入口的可用性与服务端配置、权限和兼容性有关；钉钉、企业微信尚未完成本轮真实账号同步验收。
 

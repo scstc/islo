@@ -70,6 +70,7 @@ pub(crate) fn body_ui(ui:&mut egui::Ui,lines:&[mail_format::Line],base:f32){
 
 impl App {
     pub fn mail_reader_ui(&mut self,ctx:&egui::Context) {
+        if !self.module_on(crate::app::MAIL_PAGE){return;}
         let locale=self.settings.locale();
         let Some(raw)=self.mail.reading.clone() else{return};
         let hidden=self.mail_code_hidden(&raw);

@@ -182,7 +182,7 @@ impl DetailCache {
 fn fetch_detail(id:u64)->Option<(NowPlaying,String)>{
     let url=format!("https://music.163.com/api/song/detail/?ids=%5B{id}%5D");
     let response=ureq::AgentBuilder::new().timeout(Duration::from_secs(5)).redirects(0).build().get(&url)
-        .set("User-Agent",concat!("Daozai/",env!("CARGO_PKG_VERSION")," (Windows)"))
+        .set("User-Agent",concat!("islo/",env!("ISLO_APP_VERSION")," (Windows)"))
         .set("Referer","https://music.163.com").set("Accept","application/json").call().ok()?;
     let limit=256*1024;let mut bytes=Vec::new();
     response.into_reader().take(limit+1).read_to_end(&mut bytes).ok()?;

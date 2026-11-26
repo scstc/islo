@@ -18,3 +18,7 @@
 - Every secret-capable domain must reuse `src/agent_input.rs` for rendering and clipboard capture reservation/release, and its existing native credential storage. Keep values out of CLI arguments, stdin, IPC JSON, results and logs. Pair release with save, cancel, expiry and interface disable; clear temporary values, return status only, and preserve live/disk state when cancelled or failed. Do not inspect real input windows, screenshots or clipboard to obtain values.
 - Mail account configuration uses `mail configure` and the shared secret prompt. `needs_metadata` opens no window; `awaiting_input` includes a request ID for `mail input-status` / `mail input-cancel`. `saved` confirms persistence; check `mail status` separately for connection. This explicitly requested flow extends account configuration beyond the original settings-only interface.
 - Provider OAuth is an alternative to secret entry: Outlook uses Microsoft browser consent, PKCE and a local callback; only request status reaches the Agent. Never inspect login pages/callback URLs or reuse another product's client ID. Keep the product's public `outlook_client_id` in normal settings or `ISLO_OUTLOOK_CLIENT_ID` for release builds; refresh tokens stay in native credentials. Registration and verification requirements are documented in `docs/OUTLOOK.md`.
+
+## Plugin settings
+
+- Plugin-provided settings use the host plugin badge and purple enabled/gray disabled switch; placement switches change only their placement preference. See [SDK settings design](docs/plugins/sdk-v1-design.md).

@@ -12,19 +12,22 @@ try {
         $originalFlags = $env:CARGO_ENCODED_RUSTFLAGS
         $originalCL = $env:CL
         $originalJobs = $env:CARGO_BUILD_JOBS
+        $originalTestBuild = $env:DAOZAI_TEST_BUILD
         try {
             $env:CARGO_BUILD_JOBS = '1'
             $env:CARGO_ENCODED_RUSTFLAGS = @('-C', 'target-feature=+crt-static', "--remap-path-prefix=$cargoHome=cargo", "--remap-path-prefix=$projectRoot=islo", '-C', 'link-arg=/PDBALTPATH:%_PDB%') -join [char]0x1f
             if ($env:CARGO_TARGET_DIR) { $env:CARGO_ENCODED_RUSTFLAGS += [string][char]0x1f + "--remap-path-prefix=$targetDirectory=target" }
             # QuickJS 的 C 断言使用宽字符源文件名，MSVC 单独裁剪路径。
+            Remove-Item Env:DAOZAI_TEST_BUILD -ErrorAction SilentlyContinue
             $trimFlags = $privatePaths | ForEach-Object { '"/d1trimfile:' + $_ + '"' }
             $env:CL = (@($originalCL) + $trimFlags) -join ' '
-            cargo "+$Toolchain" build --locked --release --bin islo --bin islo-cli --target x86_64-pc-windows-msvc
+            cargo "+$Toolchain" build --locked --release --features sdk-js,sdk-material --bin islo --bin islo-cli --target x86_64-pc-windows-msvc
             if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
         } finally {
             $env:CL = $originalCL
             $env:CARGO_ENCODED_RUSTFLAGS = $originalFlags
             $env:CARGO_BUILD_JOBS = $originalJobs
+            $env:DAOZAI_TEST_BUILD = $originalTestBuild
         }
     }
     if (-not $Executable) {
